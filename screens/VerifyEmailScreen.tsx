@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Formik } from 'formik';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
+import { apiUrl } from '../constants/api';
 
 const VerifyEmailSchema = Yup.object().shape({
   code: Yup.string()
@@ -20,7 +21,7 @@ export default function VerifyEmailScreen() {
 
   const handleVerifyCode = async (values, { setSubmitting }) => {
     try {
-      const response = await fetch('https://api.yama.ia.br/api/users/verify', {
+      const response = await fetch(apiUrl('/api/users/verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -55,7 +56,7 @@ export default function VerifyEmailScreen() {
   const handleResendCode = async () => {
     setIsResending(true);
     try {
-      const response = await fetch('https://api.yama.ia.br/api/users/resend-verification-code', {
+      const response = await fetch(apiUrl('/api/users/resend-verification-code'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

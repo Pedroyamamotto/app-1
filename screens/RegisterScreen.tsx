@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { Formik } from 'formik';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
-import { API_BASE_URL } from '../constants/api';
+import { apiUrl } from '../constants/api';
 
 // Schema de validação com Yup
 const RegisterSchema = Yup.object().shape({
@@ -30,7 +30,7 @@ export default function RegisterScreen() {
 
   const handleRegister = async (values, { setSubmitting }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/users/`, {
+      const response = await fetch(apiUrl('/api/users/'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

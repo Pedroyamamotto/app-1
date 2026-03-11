@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { Formik } from 'formik';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
+import { apiUrl } from '../constants/api';
 import { useUser } from '../context/UserContext';
-import { API_BASE_URL } from '../constants/api';
 
 const LoginSchema = Yup.object().shape({
   email: Yup.string().email('E-mail inválido').required('O e-mail é obrigatório'),
@@ -20,7 +20,7 @@ export default function LoginScreen() {
 
   const handleLogin = async (values, { setSubmitting }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/token/`, {
+      const response = await fetch(apiUrl('/api/users/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -31,16 +31,44 @@ export default function LoginScreen() {
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
+        const token =
+          data?.access ||
+          data?.token ||
+          data?.accessToken ||
+          data?.access_token ||
+          data?.jwt ||
+          data?.authToken ||
+          data?.tokens?.access ||
+          data?.tokens?.accessToken ||
+          (response.headers.get('authorization') || '').replace(/^Bearer\s+/i, '') ||
+          response.headers.get('x-access-token');
+
+        const userData = data?.user || data?.usuario || data?.data?.user || data?.data || data;
+
+        const hasUserIdentity = !!(userData?.email || userData?.name || userData?.nome || data?.userId);
+        if (!token && !hasUserIdentity) {
+          Alert.alert('Erro no login', 'Resposta da API inválida. Tente novamente.');
+          return;
+        }
+
         setUser({
-          name: data.user.nome,
-          email: data.user.email,
-          token: data.access,
+          name: userData?.nome || userData?.name || userData?.username || 'Usuário',
+          email: userData?.email || values.email,
+          token: token || null,
+          userId: data?.userId || userData?.id || null,
+          typeUser: data?.typeUser || userData?.typeUser || null,
         });
       } else {
-        const errorMessage = data?.detail || 'Credenciais inválidas. Verifique seu e-mail e senha.';
+        const errorMessage =
+          data?.detail ||
+          data?.message ||
+          data?.error ||
+          (response.status === 403
+            ? 'Conta não verificada. Verifique seu e-mail antes de entrar.'
+            : 'Credenciais inválidas. Verifique seu e-mail e senha.');
         Alert.alert('Erro no login', errorMessage);
       }
     } catch (error) {

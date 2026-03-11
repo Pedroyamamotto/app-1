@@ -1,8 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import React from 'react';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUser } from '../context/UserContext';
 
 const upcomingServices = [
@@ -17,19 +17,12 @@ const upcomingServices = [
 ];
 
 const HomeScreen = () => {
-  const router = useRouter();
+  const navigation = useNavigation();
   const { user, logout } = useUser();
 
   // Abordagem final, simples e direta para garantir o redirecionamento.
   const handleLogout = () => {
-    // 1. Dê a ordem de navegação primeiro e acima de tudo.
-    router.replace('/');
-
-    // 2. Agende a limpeza dos dados para ocorrer logo depois.
-    // Isso quebra a "condição de corrida" entre a navegação e a atualização do estado.
-    setTimeout(() => {
-      logout();
-    }, 50); // Um pequeno atraso para garantir que a navegação seja iniciada.
+    logout();
   };
 
   return (
@@ -64,10 +57,28 @@ const HomeScreen = () => {
           </View>
         </View>
 
+        <View style={styles.quickLinksCard}>
+          <Text style={styles.summaryTitle}>Acesso rápido</Text>
+          <View style={styles.quickLinksRow}>
+            <TouchableOpacity style={styles.quickLinkButton} onPress={() => navigation.navigate('Agenda')}>
+              <FontAwesome name="calendar" size={18} color="#008000" />
+              <Text style={styles.quickLinkText}>Agenda</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickLinkButton} onPress={() => navigation.navigate('Pendentes')}>
+              <FontAwesome name="clock-o" size={18} color="#008000" />
+              <Text style={styles.quickLinkText}>Pendentes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickLinkButton} onPress={() => navigation.navigate('Historico')}>
+              <FontAwesome name="history" size={18} color="#008000" />
+              <Text style={styles.quickLinkText}>Histórico</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <Text style={styles.servicesTitle}>Próximos Serviços</Text>
 
         {upcomingServices.map((item) => (
-          <TouchableOpacity key={item.id} onPress={() => router.push(`/detalhes/${item.id}`)}>
+          <TouchableOpacity key={item.id} onPress={() => navigation.navigate('DetalhesServico', { id: String(item.id) })}>
             <View style={styles.appointmentCard}>
               <View style={styles.appointmentHeader}>
                 <View style={styles.appointmentIdContainer}>
@@ -134,6 +145,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 15,
     marginBottom: 20,
+  },
+  quickLinksCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 20,
+  },
+  quickLinksRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  quickLinkButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d9d9d9',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickLinkText: {
+    marginTop: 6,
+    color: '#333',
+    fontSize: 13,
+    fontWeight: '600',
   },
   summaryTitle: {
     fontSize: 18,

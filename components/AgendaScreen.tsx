@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, LocaleConfig, CalendarProps } from 'react-native-calendars';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import React, { useMemo, useState } from 'react';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Calendar, CalendarProps, LocaleConfig } from 'react-native-calendars';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Configuração de localização do calendário
 LocaleConfig.locales['pt-br'] = {
@@ -24,7 +24,7 @@ const allAppointments = [
 ];
 
 const AgendaScreen = () => {
-  const router = useRouter();
+  const navigation = useNavigation();
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
 
@@ -75,7 +75,7 @@ const AgendaScreen = () => {
 
         {filteredServices.length > 0 ? (
           filteredServices.map((item) => (
-            <TouchableOpacity key={item.id} onPress={() => router.push(`/detalhes/${item.id}`)}>
+            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('DetalhesServico', { id: String(item.id) })}>
               <View style={styles.appointmentCard}>
                 <View style={styles.appointmentHeader}>
                   <View style={styles.appointmentIdContainer}><FontAwesome name="map-marker" size={16} color="#666" /><Text style={styles.appointmentId}>{item.id}</Text></View>

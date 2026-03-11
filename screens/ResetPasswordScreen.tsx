@@ -1,10 +1,11 @@
-import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Formik } from 'formik';
+import React from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
+import { apiUrl } from '../constants/api';
 
 const ResetPasswordSchema = Yup.object().shape({
   newPassword: Yup.string()
@@ -22,7 +23,7 @@ export default function ResetPasswordScreen() {
 
   const handleResetPassword = async (values, { setSubmitting }) => {
     try {
-      const response = await fetch('https://api.yama.ia.br/api/users/reset-password', {
+      const response = await fetch(apiUrl('/api/users/reset-password'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
