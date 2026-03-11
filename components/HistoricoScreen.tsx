@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import React, { useMemo } from 'react';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Dados de exemplo para o histórico
 const historyAppointments = [
@@ -25,7 +25,7 @@ const historyAppointments = [
 ];
 
 const HistoricoScreen = () => {
-  const router = useRouter();
+  const navigation = useNavigation();
 
   // Calcula as estatísticas do resumo
   const summaryStats = useMemo(() => ({
@@ -52,7 +52,7 @@ const HistoricoScreen = () => {
         {/* Lista de Serviços do Histórico */}
         {historyAppointments.length > 0 ? (
           historyAppointments.map((item) => (
-            <TouchableOpacity key={item.id} onPress={() => router.push(`/detalhes/${item.id}`)}>
+            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('DetalhesServico', { id: String(item.id) })}>
               <View style={styles.cardContainer}>
                 <View style={styles.appointmentCard}>
                   <View style={styles.appointmentHeader}>

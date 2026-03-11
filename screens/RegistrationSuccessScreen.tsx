@@ -1,23 +1,24 @@
-import React, { useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
 import { FontAwesome } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import React, { useEffect } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function RegistrationSuccessScreen() {
-  const router = useRouter();
-  const { name } = useLocalSearchParams(); // Recebe o nome do usuário
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { name } = route.params || {};
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.replace('/');
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     }, 10000); // Redireciona após 10 segundos
 
     return () => clearTimeout(timer); // Limpa o timer se o componente for desmontado
-  }, [router]);
+  }, [navigation]);
 
   const handleLogin = () => {
-    router.replace('/');
+    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
   };
 
   return (

@@ -1,5 +1,4 @@
-import React from 'react';
-import { AppRegistry } from 'react-native';
+import { registerRootComponent } from 'expo';
 import { UserProvider } from './context/UserContext';
 import AppNavigator from './navigation/AppNavigator';
 
@@ -13,6 +12,4 @@ const App = () => {
   );
 };
 
-// Registra o componente principal da aplicação.
-// O nome 'main' é o padrão para projetos React Native.
-AppRegistry.registerComponent('main', () => App);
+registerRootComponent(App);
