@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const PendentesScreen = () => {
@@ -8,8 +8,7 @@ const PendentesScreen = () => {
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Fixair</Text>
-          <Text style={styles.headerSubtitle}>Bem-vindo João | ID: 2</Text>
+          <Text style={styles.headerTitle}>Pendentes</Text>
         </View>
       </View>
 

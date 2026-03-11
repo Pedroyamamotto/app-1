@@ -1,33 +1,93 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { FontAwesome, Feather } from '@expo/vector-icons';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import ChecklistModal from '../components/ChecklistModal';
+import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
-import NotCompletedModal from '../components/NotCompletedModal';
-
-// Agregando todos os dados de serviços em um único lugar para simular uma busca
-const allServices = [
-  { id: 1, description: 'Manutenção preventiva de ar condicionado', address: 'Av. Paulista, 1000 - Apto 504', time: '14:00', date: '2026-03-05', status: 'Aceito', clientName: 'Ana Paula Souza', email: 'ana.souza@email.com', cep: '01310-100', phone: '(11) 97654-3210' },
-  { id: 2, description: 'Instalação de novo ar condicionado Split', address: 'Rua Augusta, 500 - Loja 3', time: '10:00', date: '2026-03-05', status: 'Agendado', clientName: 'Carlos Silva', email: 'carlos.silva@email.com', cep: '01301-000', phone: '(11) 98877-6655' },
-  { id: 3, description: 'Limpeza de filtros e dutos', address: 'Alameda Santos, 123 - Sala 8', time: '09:00', date: '2026-03-10', status: 'Concluído', clientName: 'Beatriz Costa', email: 'beatriz.costa@email.com', cep: '01419-001', phone: '(11) 91122-3344' },
-  { id: 4, description: 'Reparo em sistema de climatização', address: 'Rua dos Pinheiros, 789 - São Paulo', time: '16:00', date: '2026-03-02', status: 'Não Realizado', clientName: 'Daniel Martins', email: 'daniel.martins@email.com', cep: '05422-010', phone: '(11) 94455-6677' },
-  { id: 5, description: 'Instalação de ar condicionado', address: 'Rua das Flores, 123 - Apto 101', time: '09:00', date: '2026-03-20', status: 'Novo', clientName: 'Fernanda Lima', email: 'fernanda.lima@email.com', cep: '01001-000', phone: '(11) 93322-1100' },
-];
+import { apiUrl } from '../constants/api';
 
 const ServiceDetailScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { id } = route.params;
+  const { id } = (route.params || {});
+  const [isLoading, setIsLoading] = useState(true);
+  const [service, setService] = useState(null);
+  const [client, setClient] = useState(null);
 
   const [isChecklistVisible, setChecklistVisible] = useState(false);
   const [isPhotoUploadVisible, setPhotoUploadVisible] = useState(false);
   const [isSignatureVisible, setSignatureVisible] = useState(false);
   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
 
-  const service = allServices.find(s => s.id.toString() === id);
+  const serviceId = String(id || '');
+
+  const serviceDescription = useMemo(() => {
+    const raw = service?.descricao_servico || service?.descricao || service?.description || 'Serviço não informado';
+    return String(raw);
+  }, [service]);
+
+  const clientName = client?.cliente || client?.nome || client?.name || 'Cliente não informado';
+  const email = client?.email || '-';
+  const cep = client?.cep || '-';
+  const phone = client?.telefone || client?.phone || '-';
+
+  const address = useMemo(() => {
+    if (!client) return 'Endereço não informado';
+
+    const rua = client?.rua || client?.logradouro || client?.endereco || '';
+    const numero = client?.numero || '';
+    const bairro = client?.bairro || '';
+    const cidade = client?.cidade || '';
+    const estado = client?.estado || client?.uf || '';
+
+    const line1 = [rua, numero].filter(Boolean).join(', ');
+    const line2 = [bairro, cidade, estado].filter(Boolean).join(' - ');
+    return [line1, line2].filter(Boolean).join(' - ') || 'Endereço não informado';
+  }, [client]);
+
+  useEffect(() => {
+    const loadServiceDetail = async () => {
+      if (!serviceId) {
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const serviceRes = await fetch(apiUrl(`/api/services/${serviceId}`));
+        const serviceData = await serviceRes.json().catch(() => ({}));
+        const servicePayload = serviceData?.service || serviceData?.data || serviceData;
+
+        if (!servicePayload || (typeof servicePayload === 'object' && Object.keys(servicePayload).length === 0)) {
+          setService(null);
+          setClient(null);
+          return;
+        }
+
+        setService(servicePayload);
+
+        const clientId = servicePayload?.cliente_id;
+        if (clientId) {
+          const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+          const clientData = await clientRes.json().catch(() => ({}));
+          setClient(clientData?.cliente || clientData?.data || clientData);
+        } else {
+          setClient(null);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar detalhes do serviço:', error);
+        setService(null);
+        setClient(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadServiceDetail();
+  }, [serviceId]);
 
   const handleChecklistComplete = () => {
     setChecklistVisible(false);
@@ -60,6 +120,24 @@ const ServiceDetailScreen = () => {
     navigation.goBack();
   };
 
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Feather name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Carregando...</Text>
+        </View>
+        <View style={styles.notFoundContainer}>
+          <ActivityIndicator size="large" color="#008000" />
+          <Text style={styles.loadingText}>Buscando serviço...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!service) {
     return (
       <SafeAreaView style={styles.container}>
@@ -76,7 +154,9 @@ const ServiceDetailScreen = () => {
     );
   }
 
-  const formattedDate = new Date(service.date + 'T00:00:00').toLocaleDateString('pt-BR');
+  const scheduledDate = service?.data_agendada || service?.dataAgendada || service?.date;
+  const scheduledTime = service?.hora_agendada || service?.horaInicio || service?.time || '--:--';
+  const formattedDate = scheduledDate ? new Date(scheduledDate).toLocaleDateString('pt-BR') : '--/--/----';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -99,17 +179,17 @@ const ServiceDetailScreen = () => {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Descrição do Serviço:</Text>
-          <Text style={styles.cardContent}>{service.description}</Text>
+          <Text style={styles.cardContent}>{serviceDescription}</Text>
         </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Informações do Cliente:</Text>
-          <View style={styles.infoRow}><Text style={styles.infoLabel}>Nome</Text><Text style={styles.infoValue}>{service.clientName}</Text></View>
-          <View style={styles.infoRow}><Text style={styles.infoLabel}>Endereço</Text><Text style={styles.infoValue}>{service.address}</Text></View>
-          <View style={styles.infoRow}><Text style={styles.infoLabel}>Email</Text><Text style={styles.infoValue}>{service.email}</Text></View>
-          <View style={styles.infoRow}><Text style={styles.infoLabel}>CEP</Text><Text style={styles.infoValue}>{service.cep}</Text></View>
-          <View style={styles.infoRow}><Text style={styles.infoLabel}>Telefone</Text><Text style={styles.infoValue}>{service.phone}</Text></View>
-          <View style={styles.infoRow}><Text style={styles.infoLabel}>Data Agendada</Text><Text style={styles.infoValue}>{formattedDate} às {service.time}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.infoLabel}>Nome</Text><Text style={styles.infoValue}>{clientName}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.infoLabel}>Endereço</Text><Text style={styles.infoValue}>{address}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.infoLabel}>Email</Text><Text style={styles.infoValue}>{email}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.infoLabel}>CEP</Text><Text style={styles.infoValue}>{cep}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.infoLabel}>Telefone</Text><Text style={styles.infoValue}>{phone}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.infoLabel}>Data Agendada</Text><Text style={styles.infoValue}>{formattedDate} às {scheduledTime}</Text></View>
         </View>
       </ScrollView>
 
@@ -172,6 +252,7 @@ const styles = StyleSheet.create({
   secondaryButton: { backgroundColor: '#d9534f', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
   notFoundContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: '#4b5563' },
 });
 
 export default ServiceDetailScreen;

@@ -52,7 +52,7 @@ const HistoricoScreen = () => {
         {/* Lista de Serviços do Histórico */}
         {historyAppointments.length > 0 ? (
           historyAppointments.map((item) => (
-            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('DetalhesServico', { id: String(item.id) })}>
+            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('Pedido', { id: String(item.id) })}>
               <View style={styles.cardContainer}>
                 <View style={styles.appointmentCard}>
                   <View style={styles.appointmentHeader}>

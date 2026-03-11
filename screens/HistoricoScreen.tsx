@@ -1,38 +1,113 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useNavigation } from '@react-navigation/native';
-
-// Dados de exemplo para o histórico
-const historyAppointments = [
-  {
-    id: 4,
-    description: 'Reparo em sistema de climatização',
-    address: 'Rua dos Pinheiros, 789 - São Paulo',
-    time: '16:00',
-    date: '2026-03-02',
-    status: 'Não Realizado',
-  },
-  {
-    id: 3,
-    description: 'Limpeza de filtros e dutos',
-    address: 'Alameda Santos, 123 - Sala 8',
-    time: '09:00',
-    date: '2026-03-10',
-    status: 'Concluído',
-  },
-];
+import React, { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiUrl } from '../constants/api';
+import { useUser } from '../context/UserContext';
 
 const HistoricoScreen = () => {
+  const { user } = useUser();
   const navigation = useNavigation();
+  const [isLoading, setIsLoading] = useState(true);
+  const [historyAppointments, setHistoryAppointments] = useState([]);
+  const [clientsById, setClientsById] = useState({});
+
+  const tecnicoId = user?.userId;
+
+  const normalizeServices = (payload) => {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.services)) return payload.services;
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (Array.isArray(payload?.results)) return payload.results;
+    return [];
+  };
+
+  const normalizeStatus = (status) => String(status || '').toLowerCase();
+
+  const getStatusLabel = (status) => {
+    const normalized = normalizeStatus(status);
+    if (['nao_realizado', 'não_realizado'].includes(normalized)) return 'Não Realizado';
+    if (normalized === 'cancelado') return 'Cancelado';
+    if (['concluido', 'concluida'].includes(normalized)) return 'Concluído';
+    return 'Finalizado';
+  };
+
+  const buildClientAddress = (cliente) => {
+    if (!cliente) return 'Endereço não informado';
+
+    const rua = cliente?.rua || cliente?.logradouro || cliente?.endereco || '';
+    const numero = cliente?.numero || '';
+    const bairro = cliente?.bairro || '';
+    const cidade = cliente?.cidade || '';
+    const estado = cliente?.estado || cliente?.uf || '';
+
+    const line1 = [rua, numero].filter(Boolean).join(', ');
+    const line2 = [bairro, cidade, estado].filter(Boolean).join(' - ');
+
+    if (!line1 && !line2) return 'Endereço não informado';
+    if (!line2) return line1;
+    if (!line1) return line2;
+    return `${line1} - ${line2}`;
+  };
+
+  useEffect(() => {
+    const loadHistorico = async () => {
+      setIsLoading(true);
+
+      try {
+        const query = tecnicoId ? `?limit=200&tecnicoId=${tecnicoId}` : '?limit=200';
+        const servicesRes = await fetch(apiUrl(`/api/services${query}`));
+        const servicesPayload = await servicesRes.json().catch(() => ({}));
+        const services = normalizeServices(servicesPayload);
+
+        const finishedServices = services.filter((service) => {
+          const status = normalizeStatus(service?.status);
+          return ['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(status);
+        });
+
+        setHistoryAppointments(finishedServices);
+
+        const uniqueClientIds = [...new Set(finishedServices.map((s) => s?.cliente_id).filter(Boolean))];
+
+        if (uniqueClientIds.length) {
+          const clientResults = await Promise.allSettled(
+            uniqueClientIds.map(async (clientId) => {
+              const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+              const clientPayload = await clientRes.json().catch(() => ({}));
+              return { clientId, clientPayload };
+            })
+          );
+
+          const mappedClients = {};
+          clientResults.forEach((result) => {
+            if (result.status === 'fulfilled') {
+              const id = result.value.clientId;
+              const payload = result.value.clientPayload;
+              mappedClients[id] = payload?.cliente || payload?.data || payload;
+            }
+          });
+
+          setClientsById(mappedClients);
+        } else {
+          setClientsById({});
+        }
+      } catch (error) {
+        console.error('Erro ao carregar histórico:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadHistorico();
+  }, [tecnicoId]);
 
   // Calcula as estatísticas do resumo
   const summaryStats = useMemo(() => ({
-    novos: historyAppointments.filter(s => s.status === 'Novo').length,
-    agendados: historyAppointments.filter(s => ['Agendado', 'Aceito'].includes(s.status)).length,
-    concluidos: historyAppointments.filter(s => s.status === 'Concluído').length,
-  }), []);
+    novos: historyAppointments.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length,
+    agendados: historyAppointments.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length,
+    concluidos: historyAppointments.length,
+  }), [historyAppointments]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -50,34 +125,51 @@ const HistoricoScreen = () => {
         </View>
 
         {/* Lista de Serviços do Histórico */}
-        {historyAppointments.length > 0 ? (
-          historyAppointments.map((item) => (
-            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('DetalhesServico', { id: item.id })}>
+        {isLoading ? (
+          <View style={styles.noServicesContainer}>
+            <Text style={styles.noServicesText}>Carregando histórico...</Text>
+          </View>
+        ) : historyAppointments.length > 0 ? (
+          historyAppointments.map((item, index) => {
+            const serviceId = item?.id || item?._id || index;
+            const numeroPedido = item?.numero_pedido || item?.pedido_id || serviceId;
+            const descricao = item?.descricao_servico || item?.descricao || item?.description || 'Serviço';
+            const clientId = item?.cliente_id;
+            const clientData = clientsById?.[clientId];
+            const endereco = buildClientAddress(clientData);
+            const hora = item?.hora_agendada || item?.horaInicio || item?.time || '--:--';
+            const data = item?.data_agendada || item?.dataAgendada || item?.date;
+            const status = getStatusLabel(item?.status);
+            const isNotCompleted = status === 'Não Realizado' || status === 'Cancelado';
+
+            return (
+            <TouchableOpacity key={String(serviceId)} onPress={() => navigation.navigate('Pedido', { id: String(serviceId) })}>
               <View style={styles.cardContainer}>
                 <View style={styles.appointmentCard}>
                   <View style={styles.appointmentHeader}>
                     <FontAwesome name="map-marker" size={16} color="#666" />
-                    <Text style={styles.appointmentId}>{item.id}</Text>
+                    <Text style={styles.appointmentId}>Pedido {String(numeroPedido)}</Text>
                   </View>
-                  <Text style={styles.appointmentDescription}>{item.description}</Text>
-                  <Text style={styles.appointmentAddress}>{item.address}</Text>
+                  <Text style={styles.appointmentDescription}>{descricao}</Text>
+                  <Text style={styles.appointmentAddress}>{endereco}</Text>
                   <View style={styles.appointmentFooter}>
                     <View style={styles.appointmentTimeContainer}>
                       <FontAwesome name="clock-o" size={16} color="#666" />
-                      <Text style={styles.appointmentTime}>{item.time}</Text>
+                      <Text style={styles.appointmentTime}>{hora}</Text>
                     </View>
-                    <Text style={styles.appointmentDate}>Agendado: {new Date(item.date + 'T00:00:00').toLocaleDateString('pt-BR')}</Text>
+                    <Text style={styles.appointmentDate}>{data ? `Agendado: ${new Date(data).toLocaleDateString('pt-BR')}` : 'Data não informada'}</Text>
                   </View>
                 </View>
-                {item.status === 'Não Realizado' && (
+                {isNotCompleted && (
                   <View style={styles.statusButton}>
                     <FontAwesome name="times" size={14} color="#ff4d4f" />
-                    <Text style={styles.statusButtonText}>Não Realizado</Text>
+                    <Text style={styles.statusButtonText}>{status}</Text>
                   </View>
                 )}
               </View>
             </TouchableOpacity>
-          ))
+            );
+          })
         ) : (
           <View style={styles.noServicesContainer}>
             <FontAwesome name="inbox" size={32} color="#ccc" />
@@ -88,8 +180,7 @@ const HistoricoScreen = () => {
 
       {/* Cabeçalho posicionado por cima de tudo */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Fixair</Text>
-        <Text style={styles.headerSubtitle}>Bem-vindo João | ID: 2</Text>
+        <Text style={styles.headerTitle}>Histórico</Text>
       </View>
     </SafeAreaView>
   );

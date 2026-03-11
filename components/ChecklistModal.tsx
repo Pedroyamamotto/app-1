@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const checklistItemsData = [
   'Instalação da fechadura digital concluída',
@@ -16,6 +16,12 @@ const checklistItemsData = [
 
 const ChecklistModal = ({ visible, onClose, onComplete }) => {
   const [checkedItems, setCheckedItems] = useState(new Set());
+
+  useEffect(() => {
+    if (!visible) {
+      setCheckedItems(new Set());
+    }
+  }, [visible]);
 
   const handleCheck = (item) => {
     const newCheckedItems = new Set(checkedItems);

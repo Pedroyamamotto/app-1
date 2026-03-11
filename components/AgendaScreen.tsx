@@ -75,7 +75,7 @@ const AgendaScreen = () => {
 
         {filteredServices.length > 0 ? (
           filteredServices.map((item) => (
-            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('DetalhesServico', { id: String(item.id) })}>
+            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('Pedido', { id: String(item.id) })}>
               <View style={styles.appointmentCard}>
                 <View style={styles.appointmentHeader}>
                   <View style={styles.appointmentIdContainer}><FontAwesome name="map-marker" size={16} color="#666" /><Text style={styles.appointmentId}>{item.id}</Text></View>

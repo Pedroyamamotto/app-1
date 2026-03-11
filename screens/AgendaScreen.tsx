@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, StatusBar, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, LocaleConfig, CalendarProps } from 'react-native-calendars';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useNavigation } from '@react-navigation/native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Calendar, CalendarProps, LocaleConfig } from 'react-native-calendars';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiUrl } from '../constants/api';
+import { useUser } from '../context/UserContext';
 
 // Configuração de localização do calendário
 LocaleConfig.locales['pt-br'] = {
@@ -15,34 +17,130 @@ LocaleConfig.locales['pt-br'] = {
 };
 LocaleConfig.defaultLocale = 'pt-br';
 
-// Dados de exemplo
-const allAppointments = [
-  { id: 1, description: 'Manutenção preventiva', address: 'Av. Paulista, 1000', time: '14:00', date: '2026-03-05', status: 'Aceito' },
-  { id: 2, description: 'Instalação de Split', address: 'Rua Augusta, 500', time: '10:00', date: '2026-03-05', status: 'Agendado' },
-  { id: 3, description: 'Limpeza de filtros', address: 'Alameda Santos, 123', time: '09:00', date: '2026-03-10', status: 'Concluído' },
-  { id: 4, description: 'Reparo de vazamento', address: 'Rua Oscar Freire, 250', time: '16:00', date: '2026-03-12', status: 'Novo' },
-];
-
 const AgendaScreen = () => {
+  const { user } = useUser();
   const navigation = useNavigation();
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
+  const [isLoading, setIsLoading] = useState(true);
+  const [allAppointments, setAllAppointments] = useState([]);
+  const [clientsById, setClientsById] = useState({});
+
+  const tecnicoId = user?.userId;
+
+  const normalizeServices = (payload) => {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.services)) return payload.services;
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (Array.isArray(payload?.results)) return payload.results;
+    return [];
+  };
+
+  const normalizeStatus = (status) => String(status || '').toLowerCase();
+
+  const getStatusLabel = (status) => {
+    const normalized = normalizeStatus(status);
+    if (normalized === 'em_andamento') return 'Em andamento';
+    if (normalized === 'aceito') return 'Aceito';
+    if (normalized === 'agendado') return 'Agendado';
+    if (normalized === 'novo') return 'Novo';
+    if (normalized === 'pendente') return 'Pendente';
+    return 'Agendado';
+  };
+
+  const getDateKey = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().split('T')[0];
+  };
+
+  const buildClientAddress = (cliente) => {
+    if (!cliente) return 'Endereço não informado';
+
+    const rua = cliente?.rua || cliente?.logradouro || cliente?.endereco || '';
+    const numero = cliente?.numero || '';
+    const bairro = cliente?.bairro || '';
+    const cidade = cliente?.cidade || '';
+    const estado = cliente?.estado || cliente?.uf || '';
+
+    const line1 = [rua, numero].filter(Boolean).join(', ');
+    const line2 = [bairro, cidade, estado].filter(Boolean).join(' - ');
+
+    if (!line1 && !line2) return 'Endereço não informado';
+    if (!line2) return line1;
+    if (!line1) return line2;
+    return `${line1} - ${line2}`;
+  };
+
+  useEffect(() => {
+    const loadAgenda = async () => {
+      setIsLoading(true);
+
+      try {
+        const query = tecnicoId ? `?limit=200&tecnicoId=${tecnicoId}` : '?limit=200';
+        const servicesRes = await fetch(apiUrl(`/api/services${query}`));
+        const servicesPayload = await servicesRes.json().catch(() => ({}));
+        const services = normalizeServices(servicesPayload);
+
+        const activeServices = services.filter((service) => {
+          const status = normalizeStatus(service?.status);
+          return ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(status);
+        });
+
+        setAllAppointments(activeServices);
+
+        const uniqueClientIds = [...new Set(activeServices.map((s) => s?.cliente_id).filter(Boolean))];
+
+        if (uniqueClientIds.length) {
+          const clientResults = await Promise.allSettled(
+            uniqueClientIds.map(async (clientId) => {
+              const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+              const clientPayload = await clientRes.json().catch(() => ({}));
+              return { clientId, clientPayload };
+            })
+          );
+
+          const mappedClients = {};
+          clientResults.forEach((result) => {
+            if (result.status === 'fulfilled') {
+              const id = result.value.clientId;
+              const payload = result.value.clientPayload;
+              mappedClients[id] = payload?.cliente || payload?.data || payload;
+            }
+          });
+
+          setClientsById(mappedClients);
+        } else {
+          setClientsById({});
+        }
+      } catch (error) {
+        console.error('Erro ao carregar agenda:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadAgenda();
+  }, [tecnicoId]);
 
   const summaryStats = useMemo(() => ({
-    novos: allAppointments.filter(s => s.status === 'Novo').length,
-    agendados: allAppointments.filter(s => ['Agendado', 'Aceito'].includes(s.status)).length,
-    concluidos: allAppointments.filter(s => s.status === 'Concluído').length,
-  }), []);
+    novos: allAppointments.filter((s) => ['novo', 'pendente'].includes(normalizeStatus(s?.status))).length,
+    agendados: allAppointments.filter((s) => ['agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length,
+    concluidos: allAppointments.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length,
+  }), [allAppointments]);
 
   const { filteredServices, markedDates } = useMemo(() => {
-    const servicesForDay = allAppointments.filter(service => service.date === selectedDate);
+    const servicesForDay = allAppointments.filter((service) => getDateKey(service?.data_agendada || service?.dataAgendada || service?.date) === selectedDate);
     const marks = {};
-    allAppointments.forEach(service => {
-      marks[service.date] = { ...marks[service.date], marked: true, dotColor: '#1890ff' };
+    allAppointments.forEach((service) => {
+      const dateKey = getDateKey(service?.data_agendada || service?.dataAgendada || service?.date);
+      if (!dateKey) return;
+      marks[dateKey] = { ...marks[dateKey], marked: true, dotColor: '#1890ff' };
     });
     marks[selectedDate] = { ...marks[selectedDate], selected: true, selectedColor: '#008000' };
     return { filteredServices: servicesForDay, markedDates: marks };
-  }, [selectedDate]);
+  }, [allAppointments, selectedDate]);
 
   const handleDayPress: CalendarProps['onDayPress'] = (day) => {
     setSelectedDate(day.dateString);
@@ -73,23 +171,38 @@ const AgendaScreen = () => {
 
         <Text style={styles.servicesTitle}>Serviços para {formattedSelectedDate}</Text>
 
-        {filteredServices.length > 0 ? (
-          filteredServices.map((item) => (
-            <TouchableOpacity key={item.id} onPress={() => navigation.navigate('DetalhesServico', { id: item.id })}>
+        {isLoading ? (
+          <View style={styles.noServicesContainer}>
+            <Text style={styles.noServicesText}>Carregando agenda...</Text>
+          </View>
+        ) : filteredServices.length > 0 ? (
+          filteredServices.map((item, index) => {
+            const serviceId = item?.id || item?._id || index;
+            const numeroPedido = item?.numero_pedido || item?.pedido_id || serviceId;
+            const descricao = item?.descricao_servico || item?.descricao || item?.description || 'Serviço';
+            const clientId = item?.cliente_id;
+            const clientData = clientsById?.[clientId];
+            const endereco = buildClientAddress(clientData);
+            const hora = item?.hora_agendada || item?.horaInicio || item?.time || '--:--';
+            const data = item?.data_agendada || item?.dataAgendada || item?.date;
+
+            return (
+            <TouchableOpacity key={String(serviceId)} onPress={() => navigation.navigate('Pedido', { id: String(serviceId) })}>
               <View style={styles.appointmentCard}>
                 <View style={styles.appointmentHeader}>
-                  <View style={styles.appointmentIdContainer}><FontAwesome name="map-marker" size={16} color="#666" /><Text style={styles.appointmentId}>{item.id}</Text></View>
-                  <Text style={styles.appointmentStatus}>{item.status}</Text>
+                  <View style={styles.appointmentIdContainer}><FontAwesome name="map-marker" size={16} color="#666" /><Text style={styles.appointmentId}>Pedido {String(numeroPedido)}</Text></View>
+                  <Text style={styles.appointmentStatus}>{getStatusLabel(item?.status)}</Text>
                 </View>
-                <Text style={styles.appointmentDescription}>{item.description}</Text>
-                <Text style={styles.appointmentAddress}>{item.address}</Text>
+                <Text style={styles.appointmentDescription}>{descricao}</Text>
+                <Text style={styles.appointmentAddress}>{endereco}</Text>
                 <View style={styles.appointmentFooter}>
-                  <View style={styles.appointmentTimeContainer}><FontAwesome name="clock-o" size={16} color="#666" /><Text style={styles.appointmentTime}>{item.time}</Text></View>
-                  <Text style={styles.appointmentDate}>Agendado: {new Date(item.date + 'T00:00:00').toLocaleDateString('pt-BR')}</Text>
+                  <View style={styles.appointmentTimeContainer}><FontAwesome name="clock-o" size={16} color="#666" /><Text style={styles.appointmentTime}>{hora}</Text></View>
+                  <Text style={styles.appointmentDate}>{data ? `Agendado: ${new Date(data).toLocaleDateString('pt-BR')}` : 'Data não informada'}</Text>
                 </View>
               </View>
             </TouchableOpacity>
-          ))
+            );
+          })
         ) : (
           <View style={styles.noServicesContainer}>
             <FontAwesome name="inbox" size={32} color="#ccc" /><Text style={styles.noServicesText}>Nenhum serviço para esta data.</Text>
@@ -99,8 +212,7 @@ const AgendaScreen = () => {
 
       {/* O cabeçalho é renderizado por último e posicionado de forma absoluta para ficar por cima */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Fixair</Text>
-        <Text style={styles.headerSubtitle}>Bem-vindo João | ID: 2</Text>
+        <Text style={styles.headerTitle}>Agenda</Text>
       </View>
     </SafeAreaView>
   );
@@ -129,7 +241,8 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 14, color: '#fff' },
   contentContainer: { 
     padding: 20, 
-    paddingTop: 140, // Espaço aumentado para garantir que o primeiro card comece abaixo do cabeçalho
+    paddingTop: 140,
+    paddingBottom: 120,
   },
   summaryCard: { backgroundColor: '#fff', borderRadius: 8, padding: 15, marginBottom: 20 },
   summaryTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
