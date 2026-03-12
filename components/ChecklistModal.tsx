@@ -67,7 +67,7 @@ const ChecklistModal = ({ visible, onClose, onComplete }) => {
             <Text style={styles.counter}>Itens marcados: {checkedItems.size} / {checklistItemsData.length}</Text>
             <TouchableOpacity 
               style={[styles.button, canProceed ? styles.buttonPrimary : styles.buttonDisabled]}
-              onPress={onComplete}
+              onPress={() => onComplete(Array.from(checkedItems))}
               disabled={!canProceed}
             >
               <Text style={styles.buttonText}>Próximo</Text>
@@ -92,12 +92,12 @@ const styles = StyleSheet.create({
   checklistContainer: { flex: 1, marginBottom: 15 },
   checklistItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8f9fa', padding: 15, borderRadius: 8, marginBottom: 10 },
   checkbox: { width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: '#adb5bd', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  checkboxChecked: { backgroundColor: '#008000', borderColor: '#008000' },
+  checkboxChecked: { backgroundColor: '#7A1A1A', borderColor: '#7A1A1A' },
   checklistLabel: { flex: 1, fontSize: 14, color: '#495057' },
   footer: { borderTopWidth: 1, borderTopColor: '#e9ecef', paddingTop: 15 },
   counter: { textAlign: 'center', fontSize: 14, color: '#666', marginBottom: 15 },
   button: { padding: 15, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
-  buttonPrimary: { backgroundColor: '#008000' },
+  buttonPrimary: { backgroundColor: '#7A1A1A' },
   buttonDisabled: { backgroundColor: '#ced4da' },
   buttonSecondary: { backgroundColor: '#f1f3f5' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },

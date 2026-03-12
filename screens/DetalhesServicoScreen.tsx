@@ -8,11 +8,12 @@ import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
 import { apiUrl } from '../constants/api';
+import { formatLockDisplayName } from '../constants/serviceDisplay';
 
 const ServiceDetailScreen = () => {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const { id } = (route.params || {});
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const { id } = (route.params || {}) as { id?: string };
   const [isLoading, setIsLoading] = useState(true);
   const [service, setService] = useState(null);
   const [client, setClient] = useState(null);
@@ -26,7 +27,7 @@ const ServiceDetailScreen = () => {
 
   const serviceDescription = useMemo(() => {
     const raw = service?.descricao_servico || service?.descricao || service?.description || 'Serviço não informado';
-    return String(raw);
+    return formatLockDisplayName(raw);
   }, [service]);
 
   const clientName = client?.cliente || client?.nome || client?.name || 'Cliente não informado';
@@ -131,7 +132,7 @@ const ServiceDetailScreen = () => {
           <Text style={styles.headerTitle}>Carregando...</Text>
         </View>
         <View style={styles.notFoundContainer}>
-          <ActivityIndicator size="large" color="#008000" />
+          <ActivityIndicator size="large" color="#7A1A1A" />
           <Text style={styles.loadingText}>Buscando serviço...</Text>
         </View>
       </SafeAreaView>
@@ -156,7 +157,15 @@ const ServiceDetailScreen = () => {
 
   const scheduledDate = service?.data_agendada || service?.dataAgendada || service?.date;
   const scheduledTime = service?.hora_agendada || service?.horaInicio || service?.time || '--:--';
-  const formattedDate = scheduledDate ? new Date(scheduledDate).toLocaleDateString('pt-BR') : '--/--/----';
+  const formattedDate = (() => {
+    if (!scheduledDate) return '--/--/----';
+    const raw = String(scheduledDate);
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '--/--/----';
+    return parsed.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  })();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -235,7 +244,7 @@ const ServiceDetailScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f0f2f5' },
-  header: { backgroundColor: '#008000', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingTop: 50, paddingBottom: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
+  header: { backgroundColor: '#7A1A1A', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingTop: 50, paddingBottom: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
   backButton: { marginRight: 15, padding: 5 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
   contentContainer: { padding: 20, paddingBottom: 160 },
@@ -248,7 +257,7 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 12, color: '#888', marginBottom: 2 },
   infoValue: { fontSize: 16, color: '#333', fontWeight: '500' },
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#f0f2f5', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 25, borderTopWidth: 1, borderTopColor: '#e8e8e8' },
-  primaryButton: { backgroundColor: '#008000', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderRadius: 8, marginBottom: 10 },
+  primaryButton: { backgroundColor: '#7A1A1A', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderRadius: 8, marginBottom: 10 },
   secondaryButton: { backgroundColor: '#d9534f', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
   notFoundContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },

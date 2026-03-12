@@ -40,7 +40,7 @@ const AgendaScreen = () => {
     allAppointments.forEach(service => {
       marks[service.date] = { ...marks[service.date], marked: true, dotColor: '#1890ff' };
     });
-    marks[selectedDate] = { ...marks[selectedDate], selected: true, selectedColor: '#008000' };
+    marks[selectedDate] = { ...marks[selectedDate], selected: true, selectedColor: '#7A1A1A' };
     return { filteredServices: servicesForDay, markedDates: marks };
   }, [selectedDate]);
 
@@ -62,13 +62,13 @@ const AgendaScreen = () => {
           <Text style={styles.summaryTitle}>Minha Agenda</Text>
           <View style={styles.summaryStats}>
             <View style={styles.stat}><Text style={[styles.statNumber, { color: '#ff4d4f' }]}>{summaryStats.novos}</Text><Text style={styles.statLabel}>Novos</Text></View>
-            <View style={styles.stat}><Text style={[styles.statNumber, { color: '#52c41a' }]}>{summaryStats.agendados}</Text><Text style={styles.statLabel}>Agendados</Text></View>
+            <View style={styles.stat}><Text style={[styles.statNumber, { color: '#7A1A1A' }]}>{summaryStats.agendados}</Text><Text style={styles.statLabel}>Agendados</Text></View>
             <View style={styles.stat}><Text style={[styles.statNumber, { color: '#1890ff' }]}>{summaryStats.concluidos}</Text><Text style={styles.statLabel}>Concluídos</Text></View>
           </View>
         </View>
 
         <View style={styles.calendarCard}>
-          <Calendar current={selectedDate} onDayPress={handleDayPress} markedDates={markedDates} monthFormat={'MMMM yyyy'} theme={{ arrowColor: '#006400', todayTextColor: '#006400' }} />
+          <Calendar current={selectedDate} onDayPress={handleDayPress} markedDates={markedDates} monthFormat={'MMMM yyyy'} theme={{ arrowColor: '#7A1A1A', todayTextColor: '#7A1A1A' }} />
         </View>
 
         <Text style={styles.servicesTitle}>Serviços para {formattedSelectedDate}</Text>
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f2f5' 
   },
   header: { 
-    backgroundColor: '#008000', 
+    backgroundColor: '#7A1A1A', 
     paddingHorizontal: 15, 
     paddingBottom: 20,
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50, 
@@ -139,11 +139,11 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 14, color: '#666', marginTop: 5 },
   calendarCard: { backgroundColor: '#fff', borderRadius: 8, padding: 5, marginBottom: 20 },
   servicesTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, paddingHorizontal: 5 },
-  appointmentCard: { backgroundColor: '#fff', borderRadius: 8, padding: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#008000' },
+  appointmentCard: { backgroundColor: '#fff', borderRadius: 8, padding: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#7A1A1A' },
   appointmentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   appointmentIdContainer: { flexDirection: 'row', alignItems: 'center' },
   appointmentId: { marginLeft: 8, fontSize: 14, fontWeight: 'bold', color: '#333' },
-  appointmentStatus: { backgroundColor: '#52c41a', color: '#fff', borderRadius: 12, paddingVertical: 3, paddingHorizontal: 10, fontSize: 12, fontWeight: 'bold', overflow: 'hidden' },
+  appointmentStatus: { backgroundColor: '#7A1A1A', color: '#fff', borderRadius: 12, paddingVertical: 3, paddingHorizontal: 10, fontSize: 12, fontWeight: 'bold', overflow: 'hidden' },
   appointmentDescription: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 5 },
   appointmentAddress: { fontSize: 14, color: '#666', marginBottom: 10 },
   appointmentFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingTop: 10 },

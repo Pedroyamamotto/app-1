@@ -44,7 +44,7 @@ const HistoricoScreen = () => {
           <Text style={styles.summaryTitle}>Histórico</Text>
           <View style={styles.summaryStats}>
             <View style={styles.stat}><Text style={[styles.statNumber, { color: '#ff4d4f' }]}>{summaryStats.novos}</Text><Text style={styles.statLabel}>Novos</Text></View>
-            <View style={styles.stat}><Text style={[styles.statNumber, { color: '#52c41a' }]}>{summaryStats.agendados}</Text><Text style={styles.statLabel}>Agendados</Text></View>
+            <View style={styles.stat}><Text style={[styles.statNumber, { color: '#7A1A1A' }]}>{summaryStats.agendados}</Text><Text style={styles.statLabel}>Agendados</Text></View>
             <View style={styles.stat}><Text style={[styles.statNumber, { color: '#1890ff' }]}>{summaryStats.concluidos}</Text><Text style={styles.statLabel}>Concluídos</Text></View>
           </View>
         </View>
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f2f5' 
   },
   header: { 
-    backgroundColor: '#008000', 
+    backgroundColor: '#7A1A1A', 
     paddingHorizontal: 15, 
     paddingBottom: 20,
     paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 50, 
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 15,
     borderLeftWidth: 5,
-    borderLeftColor: '#008000',
+    borderLeftColor: '#7A1A1A',
   },
   appointmentHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   appointmentId: { marginLeft: 8, fontSize: 14, fontWeight: 'bold', color: '#333' },

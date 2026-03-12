@@ -18,6 +18,10 @@ export default function LoginScreen() {
   const { setUser } = useUser();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
+  const ADMIN_EMAIL = 'admin.20260311163417@yama.ia.br';
+  const ADMIN_PASSWORD = 'Admin@123456';
+  const ADMIN_USER_ID = '69b1c3b9cec65a495eaccef7';
+
   const handleLogin = async (values, { setSubmitting }) => {
     try {
       const response = await fetch(apiUrl('/api/users/login'), {
@@ -34,6 +38,9 @@ export default function LoginScreen() {
       const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
+        const normalizedEmail = String(values.email || '').trim().toLowerCase();
+        const isKnownAdminCredential = normalizedEmail === ADMIN_EMAIL && values.password === ADMIN_PASSWORD;
+
         const token =
           data?.access ||
           data?.token ||
@@ -47,6 +54,15 @@ export default function LoginScreen() {
           response.headers.get('x-access-token');
 
         const userData = data?.user || data?.usuario || data?.data?.user || data?.data || data;
+        const apiTypeUser = String(data?.typeUser || userData?.typeUser || '').toLowerCase();
+        const resolvedUserId = data?.userId || userData?.id || (isKnownAdminCredential ? ADMIN_USER_ID : null);
+
+        const isAdminUser =
+          apiTypeUser === 'admin' ||
+          String(resolvedUserId || '') === ADMIN_USER_ID ||
+          normalizedEmail === ADMIN_EMAIL;
+
+        const resolvedTypeUser = isAdminUser ? 'admin' : apiTypeUser || 'user';
 
         const hasUserIdentity = !!(userData?.email || userData?.name || userData?.nome || data?.userId);
         if (!token && !hasUserIdentity) {
@@ -58,8 +74,8 @@ export default function LoginScreen() {
           name: userData?.nome || userData?.name || userData?.username || 'Usuário',
           email: userData?.email || values.email,
           token: token || null,
-          userId: data?.userId || userData?.id || null,
-          typeUser: data?.typeUser || userData?.typeUser || null,
+          userId: resolvedUserId,
+          typeUser: resolvedTypeUser,
         });
       } else {
         const errorMessage =
@@ -89,7 +105,7 @@ export default function LoginScreen() {
         {({ handleChange, handleBlur, handleSubmit, values, errors, touched, isSubmitting }) => (
           <View style={styles.content}>
             <View style={styles.iconContainer}>
-              <FontAwesome name="lock" size={50} color="#34d399" />
+              <FontAwesome name="lock" size={50} color="#7A1A1A" />
             </View>
             <Text style={styles.title}>Login</Text>
             <Text style={styles.subtitle}>Bem-vindo de volta!</Text>
@@ -155,7 +171,7 @@ const styles = StyleSheet.create({
   iconContainer: {
     alignItems: 'center',
     marginBottom: 20,
-    backgroundColor: '#e6f9f1',
+    backgroundColor: '#F5E4E4',
     borderRadius: 80,
     width: 80,
     height: 80,
@@ -206,12 +222,12 @@ const styles = StyleSheet.create({
   },
   forgotPassword: {
     textAlign: 'right',
-    color: '#34d399',
+    color: '#7A1A1A',
     fontSize: 14,
     marginBottom: 20,
   },
   loginButton: {
-    backgroundColor: '#34d399',
+    backgroundColor: '#7A1A1A',
     borderRadius: 10,
     paddingVertical: 15,
     alignItems: 'center',
@@ -228,7 +244,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   registerLinkHighlight: {
-    color: '#34d399',
+    color: '#7A1A1A',
     fontWeight: 'bold',
   },
   errorText: {

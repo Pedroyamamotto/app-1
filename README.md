@@ -51,3 +51,13 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Admin API key
+
+Para acessar rotas administrativas do backend, configure no app a variavel `EXPO_PUBLIC_ADMIN_API_KEY`.
+
+1. Copie `.env.example` para `.env`.
+2. Defina `EXPO_PUBLIC_ADMIN_API_KEY` com o mesmo valor de `ADMIN_API_KEY` do backend.
+3. Reinicie o Expo para recarregar variaveis de ambiente.
+
+Sem essa chave, o app usa fallback `x-user-type: admin` apenas em ambientes de teste onde o backend nao define `ADMIN_API_KEY`.

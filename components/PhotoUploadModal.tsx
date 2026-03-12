@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import React, { useState } from 'react';
+import { Alert, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
   const [photo, setPhoto] = useState(null);
@@ -96,7 +96,7 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.button, photo ? styles.buttonPrimary : styles.buttonDisabled]}
-              onPress={onNext}
+              onPress={() => onNext(photo)}
               disabled={!photo}
             >
               <Text style={styles.buttonText}>Próximo</Text>
@@ -118,12 +118,12 @@ const styles = StyleSheet.create({
   uploadLabel: { fontSize: 14, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   uploadButton: { backgroundColor: '#f8f9fa', borderRadius: 8, padding: 15, borderWidth: 1, borderColor: '#dee2e6', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   uploadButtonText: { color: '#495057', fontWeight: '500' },
-  fileName: { color: '#008000', fontSize: 12 },
+  fileName: { color: '#7A1A1A', fontSize: 12 },
   previewContainer: { marginTop: 15, alignItems: 'center' },
   previewImage: { width: 200, height: 150, borderRadius: 8 },
   footer: { position: 'absolute', bottom: 25, left: 25, right: 25, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 15 },
   button: { flex: 1, padding: 15, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
-  buttonPrimary: { backgroundColor: '#008000' },
+  buttonPrimary: { backgroundColor: '#7A1A1A' },
   buttonDisabled: { backgroundColor: '#ced4da' },
   buttonSecondary: { backgroundColor: '#f1f3f5' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },

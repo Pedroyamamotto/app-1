@@ -1,13 +1,14 @@
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ChecklistModal from '../components/ChecklistModal';
 import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
 import { apiUrl } from '../constants/api';
+import { formatLockDisplayName } from '../constants/serviceDisplay';
 
 type ServiceData = {
   _id?: string;
@@ -15,6 +16,8 @@ type ServiceData = {
   numero_pedido?: string;
   cliente_id?: string;
   descricao_servico?: string;
+  descricao?: string;
+  description?: string;
   status?: string;
   data_agendada?: string;
   hora_agendada?: string;
@@ -27,19 +30,34 @@ export default function PedidoScreen() {
   const { id } = (route.params || {}) as { id?: string };
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
   const [service, setService] = useState<ServiceData | null>(null);
   const [client, setClient] = useState<any>(null);
   const [isChecklistVisible, setChecklistVisible] = useState(false);
   const [isPhotoUploadVisible, setPhotoUploadVisible] = useState(false);
   const [isSignatureVisible, setSignatureVisible] = useState(false);
   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
+  const [completionData, setCompletionData] = useState<{ checklist: string[]; photoUri: string | null }>({ checklist: [], photoUri: null });
 
   const serviceId = id || '';
+  const normalizeStatus = (status: unknown) => String(status || '').toLowerCase();
+  const isFinalized = ['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(service?.status));
+
+  const formatScheduledDate = (value: unknown) => {
+    if (!value) return '--/--/----';
+    const raw = String(value);
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      return `${match[3]}/${match[2]}/${match[1]}`;
+    }
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '--/--/----';
+    return parsed.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  };
 
   const lockName = useMemo(() => {
-    const text = service?.descricao_servico || '';
-    const firstPart = String(text).split('|')[0]?.trim() || 'Serviço';
-    return firstPart.replace(/^\s*\d+x\s*/i, '').trim();
+    return formatLockDisplayName(service?.descricao_servico || service?.descricao || service?.description || 'Servico');
   }, [service?.descricao_servico]);
 
   const address = useMemo(() => {
@@ -87,14 +105,18 @@ export default function PedidoScreen() {
     loadPedido();
   }, [serviceId]);
 
-  const formattedDate = service?.data_agendada
-    ? new Date(service.data_agendada).toLocaleDateString('pt-BR')
-    : '--/--/----';
+  const formattedDate = formatScheduledDate(service?.data_agendada);
 
   const clientName = client?.cliente || client?.nome || 'Cliente não informado';
   const phone = client?.telefone || client?.phone || '-';
 
-  const handleChecklistComplete = () => {
+  const handleChecklistComplete = (items: string[]) => {
+    if (isFinalized) {
+      Alert.alert('Serviço já finalizado', 'Este serviço já foi concluído ou marcado como não realizado.');
+      return;
+    }
+
+    setCompletionData((prev) => ({ ...prev, checklist: items }));
     setChecklistVisible(false);
     setPhotoUploadVisible(true);
   };
@@ -104,7 +126,8 @@ export default function PedidoScreen() {
     setChecklistVisible(true);
   };
 
-  const handlePhotoUploadNext = () => {
+  const handlePhotoUploadNext = (photoUri: string) => {
+    setCompletionData((prev) => ({ ...prev, photoUri }));
     setPhotoUploadVisible(false);
     setSignatureVisible(true);
   };
@@ -114,15 +137,90 @@ export default function PedidoScreen() {
     setPhotoUploadVisible(true);
   };
 
-  const handleSignatureComplete = () => {
+  const handleSignatureComplete = async (signature: string) => {
+    if (isFinalized) {
+      Alert.alert('Serviço já finalizado', 'Este serviço já foi concluído ou marcado como não realizado.');
+      return;
+    }
+
     setSignatureVisible(false);
-    navigation.goBack();
+    setIsSending(true);
+
+    try {
+      const form = new FormData();
+      form.append('status', 'concluido');
+      form.append('checklist', JSON.stringify(completionData.checklist));
+      form.append('assinatura', signature);
+
+      if (completionData.photoUri) {
+        const filename = completionData.photoUri.split('/').pop() || 'foto.jpg';
+        const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
+        const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+        (form as any).append('foto', { uri: completionData.photoUri, type: mime, name: filename });
+      }
+
+      const res = await fetch(apiUrl(`/api/services/${serviceId}`), {
+        method: 'PATCH',
+        body: form,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.message || `Erro ${res.status}`);
+      }
+
+      setService((prev) => (prev ? { ...prev, status: 'concluido' } : prev));
+
+      Alert.alert('Sucesso!', 'Serviço concluído com sucesso.', [
+        { text: 'OK', onPress: () => navigation.goBack() },
+      ]);
+    } catch (error: any) {
+      Alert.alert('Erro ao concluir', error?.message || 'Não foi possível concluir o serviço. Tente novamente.');
+    } finally {
+      setIsSending(false);
+    }
   };
 
-  const handleNotCompleted = (reason: string) => {
-    console.log('Serviço não realizado pelo motivo:', reason);
+  const handleNotCompleted = async (reason: string) => {
+    if (isFinalized) {
+      Alert.alert('Serviço já finalizado', 'Este serviço já foi concluído ou marcado como não realizado.');
+      return;
+    }
+
+    const trimmedReason = String(reason || '').trim();
+    if (!trimmedReason) {
+      Alert.alert('Atenção', 'Informe o motivo para marcar como não realizado.');
+      return;
+    }
+
     setNotCompletedModalVisible(false);
-    navigation.goBack();
+    setIsSending(true);
+
+    try {
+      const res = await fetch(apiUrl(`/api/services/${serviceId}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'nao_realizado',
+          motivo_nao_realizacao: trimmedReason,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.message || `Erro ${res.status}`);
+      }
+
+      setService((prev) => (prev ? { ...prev, status: 'nao_realizado' } : prev));
+
+      Alert.alert('Registrado!', 'Serviço marcado como não realizado.', [
+        { text: 'OK', onPress: () => navigation.goBack() },
+      ]);
+    } catch (error: any) {
+      Alert.alert('Erro', error?.message || 'Não foi possível atualizar o serviço.');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -149,7 +247,7 @@ export default function PedidoScreen() {
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#008000" />
+          <ActivityIndicator size="large" color="#7A1A1A" />
           <Text style={styles.loadingText}>Carregando pedido...</Text>
         </View>
       ) : !service ? (
@@ -196,12 +294,20 @@ export default function PedidoScreen() {
           </ScrollView>
 
           <View style={styles.footerActions}>
-            <TouchableOpacity style={styles.primaryButton} onPress={() => setChecklistVisible(true)}>
-              <Feather name="camera" size={20} color="#fff" />
-              <Text style={styles.buttonText}>Concluir Serviço</Text>
+            <TouchableOpacity
+              style={[styles.primaryButton, (isSending || isFinalized) && { opacity: 0.6 }]}
+              disabled={isSending || isFinalized}
+              onPress={() => setChecklistVisible(true)}
+            >
+              {isSending ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="camera" size={20} color="#fff" />}
+              <Text style={styles.buttonText}>{isSending ? 'Enviando...' : isFinalized ? 'Serviço Finalizado' : 'Concluir Serviço'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.secondaryButton} onPress={() => setNotCompletedModalVisible(true)}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, (isSending || isFinalized) && { opacity: 0.6 }]}
+              disabled={isSending || isFinalized}
+              onPress={() => setNotCompletedModalVisible(true)}
+            >
               <Feather name="x" size={20} color="#fff" />
               <Text style={styles.buttonText}>Marcar como Não Realizado</Text>
             </TouchableOpacity>
@@ -241,7 +347,7 @@ export default function PedidoScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f0f2f5' },
   header: {
-    backgroundColor: '#008000',
+    backgroundColor: '#7A1A1A',
     paddingHorizontal: 15,
     paddingTop: 50,
     paddingBottom: 18,

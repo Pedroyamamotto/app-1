@@ -98,7 +98,7 @@ export default function VerifyEmailScreen() {
               <FontAwesome name="close" size={24} color="black" />
             </TouchableOpacity>
             <View style={styles.iconContainer}>
-              <FontAwesome name="envelope-o" size={50} color="#34d399" />
+              <FontAwesome name="envelope-o" size={50} color="#7A1A1A" />
             </View>
             <Text style={styles.title}>Verifique seu e-mail</Text>
             <Text style={styles.subtitle}>Enviamos um código de 6 dígitos para</Text>
@@ -120,7 +120,7 @@ export default function VerifyEmailScreen() {
               {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendButtonText}>Verificar código</Text>}
             </TouchableOpacity>
             <TouchableOpacity onPress={handleResendCode} disabled={isResending}>
-              {isResending ? <ActivityIndicator color="#34d399" /> : <Text style={styles.backLink}>Reenviar código</Text>}
+              {isResending ? <ActivityIndicator color="#7A1A1A" /> : <Text style={styles.backLink}>Reenviar código</Text>}
             </TouchableOpacity>
           </View>
         )}
@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
     },
     iconContainer: {
         marginBottom: 20,
-        backgroundColor: '#e6f9f1',
+        backgroundColor: '#F5E4E4',
         borderRadius: 50,
         padding: 15,
     },
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     sendButton: {
-        backgroundColor: '#34d399',
+        backgroundColor: '#7A1A1A',
         borderRadius: 10,
         paddingVertical: 15,
         paddingHorizontal: 20,

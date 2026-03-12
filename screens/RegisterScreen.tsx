@@ -40,7 +40,7 @@ export default function RegisterScreen() {
           email: values.email,
           telefone: values.phone,
           password: values.password,
-          typeUser: 'cliente',
+          typeUser: 'tecnico',
         }),
       });
 
@@ -80,7 +80,7 @@ export default function RegisterScreen() {
               <FontAwesome name="close" size={24} color="black" />
             </TouchableOpacity>
             <View style={styles.iconContainer}>
-              <FontAwesome name="user-plus" size={40} color="#34d399" />
+              <FontAwesome name="user-plus" size={40} color="#7A1A1A" />
             </View>
             <Text style={styles.title}>Criar conta</Text>
             <Text style={styles.subtitle}>Preencha seus dados para se cadastrar</Text>
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     },
     iconContainer: {
         marginBottom: 15,
-        backgroundColor: '#e6f9f1',
+        backgroundColor: '#F5E4E4',
         borderRadius: 50,
         padding: 15,
     },
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
     },
     actionButton: {
-        backgroundColor: '#34d399',
+        backgroundColor: '#7A1A1A',
         borderRadius: 10,
         paddingVertical: 15,
         width: '100%',

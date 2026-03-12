@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 const NotCompletedModal = ({ visible, onClose, onConfirm }) => {
   const [reason, setReason] = useState('');
 
   const handleConfirm = () => {
+    if (!String(reason || '').trim()) return;
     onConfirm(reason);
     setReason('');
   };

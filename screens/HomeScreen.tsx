@@ -1,18 +1,23 @@
 import { FontAwesome } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import React, { useCallback, useState } from 'react';
 import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AppHeader from '../components/shared/AppHeader';
+import ServiceListCard from '../components/shared/ServiceListCard';
+import SummaryCard from '../components/shared/SummaryCard';
 import { apiUrl } from '../constants/api';
+import { formatLockDisplayName } from '../constants/serviceDisplay';
 import { useUser } from '../context/UserContext';
 
 const HomeScreen = () => {
   const { user, logout } = useUser();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const [isLoading, setIsLoading] = useState(true);
-  const [summary, setSummary] = useState({ novos: 0, agendados: 0, concluidas: 0 });
+  const [summary, setSummary] = useState({ concluido: 0, naoConcluida: 0, emEspera: 0 });
   const [upcomingServices, setUpcomingServices] = useState([]);
-  const [clientsById, setClientsById] = useState({});
+  const [clientsById, setClientsById] = useState<Record<string, any>>({});
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   const tecnicoId = user?.userId;
 
@@ -29,26 +34,23 @@ const HomeScreen = () => {
   const getStatusStyle = (status) => {
     const normalized = normalizeStatus(status);
 
-    if (['agendado', 'aceito'].includes(normalized)) {
-      return { label: 'Agendado', backgroundColor: '#10b981' };
-    }
-
-    if (normalized === 'em_andamento') {
-      return { label: 'Em andamento', backgroundColor: '#f59e0b' };
+    if (['nao_realizado', 'não_realizado'].includes(normalized)) {
+      return { label: 'Não Concluída', backgroundColor: '#ef4444' };
     }
 
     if (['concluido', 'concluida'].includes(normalized)) {
       return { label: 'Concluído', backgroundColor: '#3b82f6' };
     }
 
-    return { label: 'Pendente', backgroundColor: '#ef4444' };
-  };
+    if (normalized === 'cancelado') {
+      return { label: 'Não Concluída', backgroundColor: '#ef4444' };
+    }
 
-  const extractLockName = (descricao) => {
-    if (!descricao) return 'Fechadura';
+    if (['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalized)) {
+      return { label: 'Em Espera', backgroundColor: '#7A1A1A' };
+    }
 
-    const firstPart = String(descricao).split('|')[0]?.trim() || String(descricao);
-    return firstPart.replace(/^\s*\d+x\s*/i, '').trim();
+    return { label: 'Em Espera', backgroundColor: '#7A1A1A' };
   };
 
   const buildClientAddress = (cliente) => {
@@ -69,55 +71,82 @@ const HomeScreen = () => {
     return `${line1} - ${line2}`;
   };
 
-  useEffect(() => {
-    const loadHome = async () => {
+  const formatScheduledDate = (value) => {
+    if (!value) return null;
+    const raw = String(value);
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      return `${match[3]}/${match[2]}/${match[1]}`;
+    }
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  };
+
+  const isSame = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  const loadHome = useCallback(async () => {
+    if (!hasLoadedOnce) {
       setIsLoading(true);
+    }
 
-      try {
-        const query = tecnicoId ? `?limit=20&tecnicoId=${tecnicoId}` : '?limit=20';
-        const servicesRes = await fetch(apiUrl(`/api/services${query}`));
-        const servicesData = await servicesRes.json().catch(() => ({}));
-        const services = normalizeServices(servicesData);
+    try {
+      const query = tecnicoId ? `?limit=20&tecnicoId=${tecnicoId}` : '?limit=20';
+      const servicesRes = await fetch(apiUrl(`/api/services${query}`));
+      const servicesData = await servicesRes.json().catch(() => ({}));
+      const services = normalizeServices(servicesData);
+      const activeServices = services.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status)));
 
-        const novos = services.filter((s) => ['pendente', 'novo'].includes(normalizeStatus(s?.status))).length;
-        const agendados = services.filter((s) => ['agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length;
-        const concluidas = services.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
+      const concluido = services.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
+      const naoConcluida = services.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+      const emEspera = services.filter((s) => ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length;
+      const nextSummary = { concluido, naoConcluida, emEspera };
 
-        setSummary({ novos, agendados, concluidas });
-        setUpcomingServices(services);
+      setSummary((prev) => (isSame(prev, nextSummary) ? prev : nextSummary));
+      setUpcomingServices((prev) => (isSame(prev, activeServices) ? prev : activeServices));
 
-        const uniqueClientIds = [...new Set(services.map((s) => s?.cliente_id).filter(Boolean))];
-        if (uniqueClientIds.length) {
-          const clientResults = await Promise.allSettled(
-            uniqueClientIds.map(async (clientId) => {
-              const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
-              const clientData = await clientRes.json().catch(() => ({}));
-              return { clientId, clientData };
-            })
-          );
+      const uniqueClientIds = [...new Set(activeServices.map((s) => s?.cliente_id).filter(Boolean))];
+      if (uniqueClientIds.length) {
+        const clientResults = await Promise.allSettled(
+          uniqueClientIds.map(async (clientId) => {
+            const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+            const clientData = await clientRes.json().catch(() => ({}));
+            return { clientId, clientData };
+          })
+        );
 
-          const mappedClients = {};
-          clientResults.forEach((result) => {
-            if (result.status === 'fulfilled') {
-              const id = result.value.clientId;
-              const payload = result.value.clientData;
-              mappedClients[id] = payload?.cliente || payload?.data || payload;
-            }
-          });
+        const mappedClients: Record<string, any> = {};
+        clientResults.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            const id = String(result.value.clientId);
+            const payload = result.value.clientData;
+            mappedClients[id] = payload?.cliente || payload?.data || payload;
+          }
+        });
 
-          setClientsById(mappedClients);
-        } else {
-          setClientsById({});
-        }
-      } catch (error) {
-        console.error('Erro ao carregar Home:', error);
-      } finally {
-        setIsLoading(false);
+        setClientsById((prev) => (isSame(prev, mappedClients) ? prev : mappedClients));
+      } else {
+        setClientsById((prev) => (Object.keys(prev).length ? {} : prev));
       }
-    };
+    } catch (error) {
+      console.error('Erro ao carregar Home:', error);
+    } finally {
+      setIsLoading(false);
+      setHasLoadedOnce(true);
+    }
+  }, [hasLoadedOnce, tecnicoId]);
 
-    loadHome();
-  }, [tecnicoId]);
+  useFocusEffect(
+    useCallback(() => {
+      loadHome();
+      const intervalId = setInterval(() => {
+        loadHome();
+      }, 20000);
+
+      return () => clearInterval(intervalId);
+    }, [loadHome])
+  );
 
   const handleLogout = () => {
     logout();
@@ -126,34 +155,25 @@ const HomeScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Home</Text>
-          <Text style={styles.headerSubtitle}>Bem-vindo {user?.name || 'João'}</Text>
-        </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <FontAwesome name="sign-out" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title="Home"
+        subtitle={`Bem-vindo ${user?.name || 'João'}`}
+        rightContent={(
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <FontAwesome name="sign-out" size={24} color="#fff" />
+          </TouchableOpacity>
+        )}
+      />
 
       <ScrollView style={styles.content}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Visão Geral</Text>
-          <View style={styles.summaryStats}>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: '#ff4d4f' }]}>{summary.novos}</Text>
-              <Text style={styles.statLabel}>Novos</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: '#52c41a' }]}>{summary.agendados}</Text>
-              <Text style={styles.statLabel}>Agendados</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: '#1890ff' }]}>{summary.concluidas}</Text>
-              <Text style={styles.statLabel}>Concluídas</Text>
-            </View>
-          </View>
-        </View>
+        <SummaryCard
+          title="Visão Geral"
+          items={[
+            { label: 'Concluído', value: summary.concluido, color: '#1890ff' },
+            { label: 'Não Concluída', value: summary.naoConcluida, color: '#ff4d4f' },
+            { label: 'Em Espera', value: summary.emEspera, color: '#7A1A1A' },
+          ]}
+        />
 
         <Text style={styles.servicesTitle}>Próximas Instalações</Text>
 
@@ -167,9 +187,9 @@ const HomeScreen = () => {
           </View>
         ) : (
           upcomingServices.slice(0, 5).map((service, index) => {
-            const serviceId = service?.id || service?._id || index;
+            const serviceId = service?._id || service?.id || index;
             const numeroPedido = service?.numero_pedido || service?.pedido_id || serviceId;
-            const descricao = extractLockName(service?.descricao_servico || service?.descricao || service?.description);
+            const descricao = formatLockDisplayName(service?.descricao_servico || service?.descricao || service?.description);
             const clientId = service?.cliente_id;
             const clientData = clientsById?.[clientId];
             const clientName = clientData?.cliente || clientData?.nome || clientData?.name || `Cliente ${clientId || '-'}`;
@@ -178,38 +198,22 @@ const HomeScreen = () => {
             const data = service?.data_agendada || service?.dataAgendada || service?.date;
             const status = service?.status || 'agendado';
             const statusStyle = getStatusStyle(status);
+            const dataTexto = formatScheduledDate(data) ? `Agendado: ${formatScheduledDate(data)}` : 'Data não informada';
 
             return (
-              <TouchableOpacity
+              <ServiceListCard
                 key={String(serviceId)}
-                activeOpacity={0.9}
+                numeroPedido={numeroPedido}
+                descricao={descricao}
+                clientName={clientName}
+                endereco={endereco}
+                hora={hora}
+                dataTexto={dataTexto}
+                statusLabel={statusStyle.label}
+                statusColor={statusStyle.backgroundColor}
+                borderLeftColor="#ff4d4f"
                 onPress={() => navigation.navigate('Pedido', { id: String(serviceId) })}
-              >
-                <View style={styles.appointmentCard}>
-                  <View style={styles.appointmentHeader}>
-                    <View style={styles.topAddressRow}>
-                      <FontAwesome name="file-text-o" size={16} color="#666" />
-                      <Text style={styles.topAddressText}>Pedido {String(numeroPedido)}</Text>
-                    </View>
-                    <Text style={[styles.appointmentStatus, { backgroundColor: statusStyle.backgroundColor }]}>{statusStyle.label}</Text>
-                  </View>
-                  <Text style={styles.appointmentDescription}>{descricao}</Text>
-                  <Text style={styles.appointmentClient}>{clientName}</Text>
-                  <View style={styles.addressRow}>
-                    <FontAwesome name="map-marker" size={16} color="#666" />
-                    <Text style={styles.appointmentAddress}>{endereco}</Text>
-                  </View>
-                  <View style={styles.appointmentFooter}>
-                    <View style={styles.appointmentTimeContainer}>
-                      <FontAwesome name="clock-o" size={16} color="#666" />
-                      <Text style={styles.appointmentTime}>{hora}</Text>
-                    </View>
-                    <Text style={styles.appointmentDate}>
-                      {data ? `Agendado: ${new Date(data).toLocaleDateString('pt-BR')}` : 'Data não informada'}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
+              />
             );
           })
         )}
@@ -223,26 +227,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f2f5',
   },
-  header: {
-    backgroundColor: '#008000',
-    paddingHorizontal: 15,
-    paddingVertical: 20,
-    paddingTop: 50,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#fff',
-  },
   logoutButton: {
     padding: 10,
   },
@@ -250,33 +234,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     marginTop: -30,
-  },
-  summaryCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 20,
-  },
-  summaryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
-  },
-  summaryStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  stat: {
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
   },
   servicesTitle: {
     fontSize: 18,
@@ -294,87 +251,6 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#333',
-  },
-  appointmentCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 15,
-    borderLeftWidth: 5,
-    borderLeftColor: '#ff4d4f',
-  },
-  appointmentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  topAddressRow: {
-    flexDirection: 'row',
-    flex: 1,
-    alignItems: 'center',
-    paddingRight: 10,
-  },
-  topAddressText: {
-    marginLeft: 8,
-    fontSize: 12,
-    color: '#6b7280',
-    flexShrink: 1,
-  },
-  appointmentStatus: {
-    color: '#fff',
-    borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    fontSize: 12,
-    fontWeight: 'bold',
-    overflow: 'hidden',
-    textTransform: 'capitalize',
-  },
-  appointmentDescription: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 6,
-  },
-  appointmentAddress: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-    marginLeft: 8,
-    flex: 1,
-  },
-  addressRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  appointmentClient: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 6,
-  },
-  appointmentFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 10,
-  },
-  appointmentTimeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  appointmentTime: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#666',
-  },
-  appointmentDate: {
-    fontSize: 14,
-    color: '#666',
   },
 });
 

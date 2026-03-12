@@ -53,7 +53,7 @@ export default function ForgotPasswordScreen() {
                 <FontAwesome name="close" size={24} color="black" />
               </TouchableOpacity>
               <View style={styles.iconContainer}>
-                <FontAwesome name="envelope-o" size={50} color="#34d399" />
+                <FontAwesome name="envelope-o" size={50} color="#7A1A1A" />
               </View>
               <Text style={styles.title}>Esqueceu a senha?</Text>
               <Text style={styles.subtitle}>Digite seu e-mail cadastrado para receber o código de verificação</Text>
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     },
     iconContainer: {
         marginBottom: 20,
-        backgroundColor: '#e6f9f1',
+        backgroundColor: '#F5E4E4',
         borderRadius: 50,
         padding: 15,
     },
@@ -139,14 +139,14 @@ const styles = StyleSheet.create({
     },
     input: {
         borderWidth: 1,
-        borderColor: '#34d399',
+        borderColor: '#7A1A1A',
         borderRadius: 10,
         padding: 15,
         fontSize: 16,
         width: '100%',
     },
     sendButton: {
-        backgroundColor: '#34d399',
+        backgroundColor: '#7A1A1A',
         borderRadius: 10,
         paddingVertical: 15,
         paddingHorizontal: 20,

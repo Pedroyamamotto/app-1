@@ -1,6 +1,6 @@
-import React, { useRef } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import React, { useRef } from 'react';
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Signature from 'react-native-signature-canvas';
 
 const SignatureModal = ({ visible, onClose, onBack, onComplete }) => {
@@ -10,10 +10,8 @@ const SignatureModal = ({ visible, onClose, onBack, onComplete }) => {
     sigRef.current.clearSignature();
   };
 
-  const handleConfirm = (signature) => {
-    // Here you would normally save the signature
-    console.log(signature);
-    onComplete();
+  const handleConfirm = (signature: string) => {
+    onComplete(signature);
   };
 
   return (
@@ -89,7 +87,7 @@ const styles = StyleSheet.create({
   clearButtonText: { color: '#d9534f', fontWeight: 'bold' },
   footer: { position: 'absolute', bottom: 25, left: 25, right: 25, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 15 },
   button: { flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderRadius: 8, marginHorizontal: 5 },
-  buttonPrimary: { backgroundColor: '#008000' },
+  buttonPrimary: { backgroundColor: '#7A1A1A' },
   buttonSecondary: { backgroundColor: '#f1f3f5' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
   buttonSecondaryText: { color: '#495057', fontSize: 16, fontWeight: 'bold' },

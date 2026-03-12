@@ -22,7 +22,7 @@ const PendentesScreen = () => {
               <Text style={styles.statLabel}>Novos</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: '#52c41a' }]}>0</Text>
+              <Text style={[styles.statNumber, { color: '#7A1A1A' }]}>0</Text>
               <Text style={styles.statLabel}>Agendados</Text>
             </View>
             <View style={styles.stat}>
@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f2f5',
   },
   header: {
-    backgroundColor: '#008000',
+    backgroundColor: '#7A1A1A',
     paddingHorizontal: 15,
     paddingVertical: 20,
     paddingTop: 50,
