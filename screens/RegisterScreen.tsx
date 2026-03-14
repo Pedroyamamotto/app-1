@@ -30,8 +30,9 @@ export default function RegisterScreen() {
 
   const handleRegister = async (values, { setSubmitting }) => {
     try {
-      const response = await apiFetch('/api/users/', {
+      const response = await apiFetch('/api/users', {
         method: 'POST',
+        allowFallback: true,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -44,17 +45,27 @@ export default function RegisterScreen() {
         }),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      let rawText = '';
+
+      try {
+        data = await response.json();
+      } catch {
+        rawText = await response.text();
+      }
 
       if (response.ok) {
         navigation.navigate('VerifyEmail', { email: values.email, name: values.name });
       } else {
-        console.error('API Error:', data);
+        console.warn('API Error:', data || rawText || response.status);
 
         const errorMessage =
           (data?.error && data.error[0]) ||
+          (typeof data?.error === 'string' ? data.error : null) ||
           data?.message ||
           data?.detail ||
+          (rawText && !rawText.trim().startsWith('<') ? rawText : null) ||
+          `Falha no servidor (${response.status}).` ||
           'Não foi possível criar a conta.';
 
         Alert.alert('Erro no cadastro', errorMessage);

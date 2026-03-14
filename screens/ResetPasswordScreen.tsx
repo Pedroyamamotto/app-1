@@ -21,10 +21,25 @@ export default function ResetPasswordScreen() {
   const route = useRoute();
   const { email, code } = route.params;
 
+  const readErrorPayload = async (response: Response) => {
+    try {
+      const data = await response.json();
+      return { data, rawText: '' };
+    } catch {
+      try {
+        const rawText = await response.text();
+        return { data: null, rawText };
+      } catch {
+        return { data: null, rawText: '' };
+      }
+    }
+  };
+
   const handleResetPassword = async (values, { setSubmitting }) => {
     try {
       const response = await apiFetch('/api/users/reset-password', {
         method: 'POST',
+        allowFallback: true,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -39,9 +54,19 @@ export default function ResetPasswordScreen() {
         Alert.alert('Sucesso', 'Sua senha foi redefinida com sucesso! Faça o login com sua nova senha.');
         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
       } else {
-        const errorData = await response.json();
-        console.error('Reset Password API Error:', errorData);
-        Alert.alert('Erro', errorData.detail || 'Não foi possível redefinir a senha. O código pode ser inválido ou ter expirado.');
+        const parsed = await readErrorPayload(response);
+        const errorData = parsed.data;
+        const rawText = parsed.rawText;
+
+        console.warn('Reset Password API Error:', errorData || rawText || response.status);
+        Alert.alert(
+          'Erro',
+          errorData?.error ||
+            errorData?.message ||
+            errorData?.detail ||
+            (rawText && !rawText.trim().startsWith('<') ? rawText : null) ||
+            'Não foi possível redefinir a senha. O código pode ser inválido ou ter expirado.'
+        );
       }
     } catch (error) {
       console.error('Reset Password Error:', error);

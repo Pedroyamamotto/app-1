@@ -1,6 +1,6 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +21,11 @@ const HomeScreen = () => {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const previousServiceIdsRef = useRef<Set<string>>(new Set());
   const hasRequestedNotificationsRef = useRef(false);
+
+  const isExpoGo = Constants.executionEnvironment === 'storeClient';
+  const Notifications = !isExpoGo && Platform.OS !== 'web'
+    ? (require('expo-notifications') as typeof import('expo-notifications'))
+    : null;
 
   const tecnicoId = user?.userId;
 
@@ -113,7 +118,7 @@ const HomeScreen = () => {
     String(service?._id || service?.id || service?.pedido_id || service?.numero_pedido || index);
 
   const requestNotificationPermission = useCallback(async () => {
-    if (Platform.OS === 'web' || hasRequestedNotificationsRef.current) return;
+    if (!Notifications || hasRequestedNotificationsRef.current) return;
     hasRequestedNotificationsRef.current = true;
 
     try {
@@ -129,10 +134,10 @@ const HomeScreen = () => {
         console.warn('Nao foi possivel solicitar permissao de notificacao', error);
       }
     }
-  }, []);
+  }, [Notifications]);
 
   const notifyNewAssignedService = useCallback(async (service) => {
-    if (Platform.OS === 'web') return;
+    if (!Notifications) return;
 
     const numeroPedido = service?.numero_pedido || service?.pedido_id || service?._id || service?.id || 'novo servico';
     await Notifications.scheduleNotificationAsync({
@@ -143,7 +148,7 @@ const HomeScreen = () => {
       },
       trigger: null,
     });
-  }, []);
+  }, [Notifications]);
 
   useEffect(() => {
     requestNotificationPermission();
@@ -164,7 +169,7 @@ const HomeScreen = () => {
 
       const currentServiceIds = new Set<string>(activeServices.map((service, index) => getServiceStableId(service, index)));
       if (hasLoadedOnce && previousServiceIdsRef.current.size > 0) {
-        const hasNotificationPermission = Platform.OS !== 'web'
+        const hasNotificationPermission = Notifications
           ? (await Notifications.getPermissionsAsync()).granted
           : false;
 
@@ -216,7 +221,7 @@ const HomeScreen = () => {
       setIsLoading(false);
       setHasLoadedOnce(true);
     }
-  }, [hasLoadedOnce, tecnicoId]);
+  }, [Notifications, hasLoadedOnce, tecnicoId]);
 
   useFocusEffect(
     useCallback(() => {

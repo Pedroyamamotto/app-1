@@ -17,10 +17,25 @@ export default function VerifyCodeScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { email } = route.params;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
   const [isResending, setIsResending] = useState(false);
 
+  const readErrorPayload = async (response: Response) => {
+    try {
+      const data = await response.json();
+      return { data, rawText: '' };
+    } catch {
+      try {
+        const rawText = await response.text();
+        return { data: null, rawText };
+      } catch {
+        return { data: null, rawText: '' };
+      }
+    }
+  };
+
   const handleVerifyCode = (values) => {
-    navigation.navigate('ResetPassword', { email, code: values.code });
+    navigation.navigate('ResetPassword', { email: normalizedEmail, code: values.code });
   };
 
   const handleResendCode = async () => {
@@ -28,18 +43,29 @@ export default function VerifyCodeScreen() {
     try {
       const response = await apiFetch('/api/users/request-password-reset', {
         method: 'POST',
+        allowFallback: true,
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email: email }),
+        body: JSON.stringify({ email: normalizedEmail }),
       });
 
       if (response.ok) {
         Alert.alert('Sucesso', 'Um novo código de redefinição foi enviado para o seu e-mail.');
       } else {
-        const errorData = await response.json();
-        console.error('Resend Code API Error:', errorData);
-        Alert.alert('Erro', errorData.detail || 'Não foi possível reenviar o código.');
+        const parsed = await readErrorPayload(response);
+        const errorData = parsed.data;
+        const rawText = parsed.rawText;
+
+        console.warn('Resend Code API Error:', errorData || rawText || response.status);
+        Alert.alert(
+          'Erro',
+          errorData?.error ||
+            errorData?.message ||
+            errorData?.detail ||
+            (rawText && !rawText.trim().startsWith('<') ? rawText : null) ||
+            `Falha no servidor (${response.status}).`
+        );
       }
     } catch (error) {
       console.error('Resend Code Error:', error);
@@ -78,7 +104,7 @@ export default function VerifyCodeScreen() {
             </View>
             <Text style={styles.title}>Código de verificação</Text>
             <Text style={styles.subtitle}>Enviamos um código de 6 dígitos para</Text>
-            <Text style={styles.emailText}>{email}</Text>
+            <Text style={styles.emailText}>{normalizedEmail}</Text>
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Código de verificação</Text>
               <TextInput

@@ -12,25 +12,54 @@ const ForgotPasswordSchema = Yup.object().shape({
 });
 
 export default function ForgotPasswordScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
+
+  const readErrorPayload = async (response: Response) => {
+    try {
+      const data = await response.json();
+      return { data, rawText: '' };
+    } catch {
+      try {
+        const rawText = await response.text();
+        return { data: null, rawText };
+      } catch {
+        return { data: null, rawText: '' };
+      }
+    }
+  };
 
   const handleSendCode = async (values, { setSubmitting }) => {
+    const normalizedEmail = String(values.email || '').trim().toLowerCase();
+
     try {
       const response = await apiFetch('/api/users/request-password-reset', {
         method: 'POST',
+        allowFallback: true,
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email: values.email }),
+        body: JSON.stringify({ email: normalizedEmail }),
       });
 
       if (response.ok) {
         Alert.alert('Sucesso', 'Um código de redefinição de senha foi enviado para o seu e-mail.');
-        navigation.navigate('VerifyCode', { email: values.email });
+        navigation.navigate('VerifyCode', { email: normalizedEmail });
       } else {
-        const errorData = await response.json();
-        console.error('Forgot Password API Error:', errorData);
-        Alert.alert('Erro', errorData.detail || 'Não foi possível solicitar a redefinição de senha.');
+        const parsed = await readErrorPayload(response);
+        const errorData = parsed.data;
+        const rawText = parsed.rawText;
+        const apiMessage = errorData?.error || errorData?.message || errorData?.detail;
+        const isUserNotFound = String(apiMessage || '').toLowerCase().includes('usuário não encontrado') || String(apiMessage || '').toLowerCase().includes('usuario nao encontrado');
+
+        console.warn('Forgot Password API Error:', errorData || rawText || response.status);
+        Alert.alert(
+          'Erro',
+          isUserNotFound
+            ? 'Usuário não encontrado. Verifique o e-mail cadastrado (exato) e tente novamente.'
+            : apiMessage ||
+              (rawText && !rawText.trim().startsWith('<') ? rawText : null) ||
+              `Falha no servidor (${response.status}).`
+        );
       }
     } catch (error) {
       console.error('Forgot Password Error:', error);
@@ -81,7 +110,7 @@ export default function ForgotPasswordScreen() {
                 />
                 {submitCount > 0 && typeof errors.email === 'string' ? <Text style={styles.errorText}>{errors.email}</Text> : null}
               </View>
-              <TouchableOpacity style={[styles.sendButton, isSubmitting && styles.disabledButton]} onPress={handleSubmit} disabled={isSubmitting}>
+              <TouchableOpacity style={[styles.sendButton, isSubmitting && styles.disabledButton]} onPress={() => handleSubmit()} disabled={isSubmitting}>
                 {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendButtonText}>Enviar código</Text>}
               </TouchableOpacity>
               <TouchableOpacity onPress={() => navigation.goBack()}>

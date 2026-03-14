@@ -19,10 +19,25 @@ export default function VerifyEmailScreen() {
   const { email, name } = route.params || {};
   const [isResending, setIsResending] = useState(false);
 
+  const readErrorPayload = async (response: Response) => {
+    try {
+      const data = await response.json();
+      return { data, rawText: '' };
+    } catch {
+      try {
+        const rawText = await response.text();
+        return { data: null, rawText };
+      } catch {
+        return { data: null, rawText: '' };
+      }
+    }
+  };
+
   const handleVerifyCode = async (values, { setSubmitting }) => {
     try {
       const response = await apiFetch('/api/users/verify', {
         method: 'POST',
+        allowFallback: true,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -32,17 +47,32 @@ export default function VerifyEmailScreen() {
         }),
       });
 
+      let errorData: any = null;
+      let rawText = '';
+
+      if (!response.ok) {
+        const parsed = await readErrorPayload(response);
+        errorData = parsed.data;
+        rawText = parsed.rawText;
+      }
+
       if (response.ok) {
         navigation.replace('RegistrationSuccess', { name: name });
       } else {
-        const errorData = await response.json();
-        console.error("Verify Email API Error:", errorData);
+        console.warn('Verify Email API Error:', errorData || rawText || response.status);
 
-        if (errorData.error === 'Usuário já verificado.') {
+        if (errorData?.error === 'Usuário já verificado.') {
             Alert.alert('E-mail já verificado', 'Sua conta já foi verificada. Você pode fazer o login.');
             navigation.replace('Login');
         } else {
-            Alert.alert('Erro na verificação', errorData.detail || 'Código inválido ou expirado.');
+            Alert.alert(
+              'Erro na verificação',
+              errorData?.error ||
+                errorData?.message ||
+                errorData?.detail ||
+                (rawText && !rawText.trim().startsWith('<') ? rawText : null) ||
+                `Falha no servidor (${response.status}).`
+            );
         }
       }
     } catch (error) {
@@ -54,10 +84,16 @@ export default function VerifyEmailScreen() {
   };
 
   const handleResendCode = async () => {
+    if (!email) {
+      Alert.alert('Erro', 'E-mail não informado para reenviar o código.');
+      return;
+    }
+
     setIsResending(true);
     try {
       const response = await apiFetch('/api/users/resend-verification-code', {
         method: 'POST',
+        allowFallback: true,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -67,9 +103,19 @@ export default function VerifyEmailScreen() {
       if (response.ok) {
         Alert.alert('Sucesso', 'Um novo código de verificação foi enviado para o seu e-mail.');
       } else {
-        const errorData = await response.json();
-        console.error("Resend Code API Error:", errorData);
-        Alert.alert('Erro', errorData.detail || 'Não foi possível reenviar o código.');
+        const parsed = await readErrorPayload(response);
+        const errorData = parsed.data;
+        const rawText = parsed.rawText;
+
+        console.warn('Resend Code API Error:', errorData || rawText || response.status);
+        Alert.alert(
+          'Erro',
+          errorData?.error ||
+            errorData?.message ||
+            errorData?.detail ||
+            (rawText && !rawText.trim().startsWith('<') ? rawText : null) ||
+            `Falha no servidor (${response.status}).`
+        );
       }
     } catch (error) {
       console.error("Resend Code Error:", error);
