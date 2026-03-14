@@ -8,13 +8,17 @@ import { fetchAdminDashboardFromApi, type AdminDashboardData } from '../../compo
 
 export default function AdmRelatoriosScreen() {
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadRelatorios = useCallback(async () => {
     try {
       const nextDashboard = await fetchAdminDashboardFromApi();
       setDashboard(nextDashboard);
+      setLoadError(null);
     } catch (error) {
       console.warn('Erro ao carregar relatorios admin:', error);
+      setLoadError(error instanceof Error ? error.message : 'Nao foi possivel carregar os relatorios da API admin.');
+      setDashboard(null);
     }
   }, []);
 
@@ -82,6 +86,8 @@ export default function AdmRelatoriosScreen() {
             </View>
           ))}
         </View>
+
+        {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Desempenho por Tecnico</Text>
@@ -152,6 +158,12 @@ const styles = StyleSheet.create({
   kpiDetail: {
     fontSize: 13,
     color: '#64748b',
+    lineHeight: 18,
+  },
+  errorText: {
+    marginBottom: 12,
+    color: '#b91c1c',
+    fontSize: 13,
     lineHeight: 18,
   },
   sectionCard: {

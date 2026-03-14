@@ -1,4 +1,4 @@
-import { apiUrl } from '../../../constants/api';
+import { API_BASE_URL, apiFetch } from '../../../constants/api';
 
 export type AdminServiceStatus = 'aguardando' | 'atribuido' | 'concluido' | 'nao_realizado';
 
@@ -14,6 +14,11 @@ export type AdminServiceData = {
   data: string;
   status: AdminServiceStatus;
   checklist?: { item: string; status: boolean }[];
+  fotoUri?: string;
+  assinaturaUri?: string;
+  assinadoPor?: string;
+  horaConclusao?: string;
+  dataConclusao?: string;
   motivo?: string;
   telefone?: string;
 };
@@ -98,18 +103,50 @@ const N8N_WEBHOOK_PROD = 'https://yamamotto-dev.app.n8n.cloud/webhook/Receber';
 
 const normalizeServices = (payload: unknown): any[] => {
   const asAny = payload as any;
+  const nestedServices = asAny?.services;
+  const nestedData = asAny?.data;
   if (Array.isArray(asAny)) return asAny;
   if (Array.isArray(asAny?.services)) return asAny.services;
+  if (Array.isArray(nestedServices?.data)) return nestedServices.data;
+  if (Array.isArray(nestedServices?.items)) return nestedServices.items;
+  if (Array.isArray(nestedServices?.docs)) return nestedServices.docs;
+  if (Array.isArray(asAny?.pedidos)) return asAny.pedidos;
   if (Array.isArray(asAny?.data)) return asAny.data;
+  if (Array.isArray(nestedData?.data)) return nestedData.data;
+  if (Array.isArray(asAny?.data?.services)) return asAny.data.services;
+  if (Array.isArray(asAny?.data?.pedidos)) return asAny.data.pedidos;
+  if (Array.isArray(asAny?.data?.items)) return asAny.data.items;
+  if (Array.isArray(asAny?.data?.docs)) return asAny.data.docs;
+  if (Array.isArray(asAny?.items)) return asAny.items;
+  if (Array.isArray(asAny?.docs)) return asAny.docs;
+  if (Array.isArray(asAny?.rows)) return asAny.rows;
   if (Array.isArray(asAny?.results)) return asAny.results;
   return [];
 };
 
 const normalizeTecnicos = (payload: unknown): any[] => {
   const asAny = payload as any;
+  const nestedUsers = asAny?.users;
+  const nestedTecnicos = asAny?.tecnicos;
+  const nestedData = asAny?.data;
   if (Array.isArray(asAny)) return asAny;
   if (Array.isArray(asAny?.tecnicos)) return asAny.tecnicos;
+  if (Array.isArray(nestedTecnicos?.data)) return nestedTecnicos.data;
+  if (Array.isArray(nestedTecnicos?.items)) return nestedTecnicos.items;
+  if (Array.isArray(nestedTecnicos?.docs)) return nestedTecnicos.docs;
+  if (Array.isArray(asAny?.users)) return asAny.users;
+  if (Array.isArray(nestedUsers?.data)) return nestedUsers.data;
+  if (Array.isArray(nestedUsers?.items)) return nestedUsers.items;
+  if (Array.isArray(nestedUsers?.docs)) return nestedUsers.docs;
   if (Array.isArray(asAny?.data)) return asAny.data;
+  if (Array.isArray(nestedData?.data)) return nestedData.data;
+  if (Array.isArray(asAny?.data?.tecnicos)) return asAny.data.tecnicos;
+  if (Array.isArray(asAny?.data?.users)) return asAny.data.users;
+  if (Array.isArray(asAny?.data?.items)) return asAny.data.items;
+  if (Array.isArray(asAny?.data?.docs)) return asAny.data.docs;
+  if (Array.isArray(asAny?.items)) return asAny.items;
+  if (Array.isArray(asAny?.docs)) return asAny.docs;
+  if (Array.isArray(asAny?.rows)) return asAny.rows;
   if (Array.isArray(asAny?.results)) return asAny.results;
   return [];
 };
@@ -117,8 +154,10 @@ const normalizeTecnicos = (payload: unknown): any[] => {
 const normalizeStatus = (status: unknown): string => String(status || '').toLowerCase();
 
 let hasWarnedMissingAdminKey = false;
+const DEFAULT_EMBEDDED_ADMIN_API_KEY = 'ak_live_2026_Yama_9rT4mN7qX2pL6vK1';
 
-const getAdminApiKey = () => String(process.env.EXPO_PUBLIC_ADMIN_API_KEY || '').trim();
+const getAdminApiKey = () =>
+  String(process.env.EXPO_PUBLIC_ADMIN_API_KEY || process.env.ADMIN_API_KEY || DEFAULT_EMBEDDED_ADMIN_API_KEY || '').trim();
 
 const adminHeaders = () => {
   const adminApiKey = getAdminApiKey();
@@ -168,7 +207,7 @@ const throwIfNotOk = async (res: Response, fallbackMessage: string) => {
 
   const errorMessage = String(
     isAdminAuthError
-      ? `${rawMessage} | Configure EXPO_PUBLIC_ADMIN_API_KEY no app e reinicie o Expo. Em teste local sem chave no backend, use fallback x-user-type=admin.`
+      ? `${rawMessage} | Configure EXPO_PUBLIC_ADMIN_API_KEY no build EAS e reinstale o app.`
       : rawMessage
   );
   throw new Error(errorMessage);
@@ -226,6 +265,87 @@ export const formatScheduledDate = (value: unknown) => {
   return parsed.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 };
 
+const formatTimeValue = (value: unknown) => {
+  if (!value) return '';
+
+  const raw = String(value).trim();
+  const hhmmMatch = raw.match(/^(\d{2}:\d{2})/);
+  if (hhmmMatch) return hhmmMatch[1];
+
+  const isoMatch = raw.match(/T(\d{2}:\d{2})/);
+  if (isoMatch) return isoMatch[1];
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const extractAssetPath = (value: unknown): string => {
+  if (!value) return '';
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = extractAssetPath(item);
+      if (found) return found;
+    }
+    return '';
+  }
+
+  if (typeof value === 'object') {
+    const asAny = value as any;
+    const candidateKeys = [
+      'url',
+      'uri',
+      'path',
+      'filePath',
+      'filepath',
+      'location',
+      'secure_url',
+      'src',
+      'originalUrl',
+      'publicUrl',
+      'downloadUrl',
+      'fotoUrl',
+      'foto_url',
+      'imagem',
+      'image',
+      'file',
+    ];
+
+    for (const key of candidateKeys) {
+      const found = extractAssetPath(asAny?.[key]);
+      if (found) return found;
+    }
+
+    const nestedKeys = ['data', 'attributes', 'asset', 'foto', 'imagem'];
+    for (const key of nestedKeys) {
+      const found = extractAssetPath(asAny?.[key]);
+      if (found) return found;
+    }
+  }
+
+  return '';
+};
+
+const resolveAssetUrl = (value: unknown, originBase = API_BASE_URL) => {
+  const rawSource = extractAssetPath(value);
+  const raw = String(rawSource || '').trim();
+  if (!raw || raw === '[object Object]') return undefined;
+
+  const normalized = raw.replace(/\\/g, '/');
+
+  if (/^(https?:|data:|file:|content:)/i.test(normalized)) return encodeURI(normalized);
+  if (normalized.startsWith('/')) return encodeURI(`${originBase}${normalized}`);
+  return encodeURI(`${originBase}/${normalized}`);
+};
+
 const mapApiStatusToAdmin = (service: any, tecnico: string): AdminServiceStatus => {
   const status = normalizeStatus(service?.status);
 
@@ -240,27 +360,39 @@ const mapApiStatusToAdmin = (service: any, tecnico: string): AdminServiceStatus 
 };
 
 export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
-  const servicesRes = await fetch(apiUrl('/api/admin/services?page=1&limit=100'), {
+  const servicesRes = await apiFetch('/api/admin/services?page=1&limit=100', {
     headers: adminHeaders(),
   });
   await throwIfNotOk(servicesRes, 'Nao foi possivel carregar os servicos admin');
+
+  let assetOriginBase = API_BASE_URL;
+  try {
+    if (servicesRes.url) {
+      assetOriginBase = new URL(servicesRes.url).origin;
+    }
+  } catch {
+    assetOriginBase = API_BASE_URL;
+  }
 
   const servicesPayload = await readJsonSafely(servicesRes);
   const rawServices = normalizeServices(servicesPayload);
 
   return rawServices.map((service: any, index: number) => {
+    const rawCliente = service?.cliente;
+    const clientData = typeof rawCliente === 'object' && rawCliente !== null ? rawCliente : {};
     const serviceId = String(service?.id || service?._id || index + 1);
-    const clientData = service?.cliente || {};
     const clientName =
       service?.nome_cliente ||
       clientData?.cliente ||
       clientData?.nome ||
       clientData?.name ||
-      service?.cliente ||
+      (typeof rawCliente === 'string' ? rawCliente : '') ||
       `Cliente ${service?.cliente_id || '-'}`;
     const tecnico =
       service?.nome_tecnico ||
       service?.tecnico_nome ||
+      service?.tecnico?.nome ||
+      service?.tecnico?.name ||
       service?.tecnicoResponsavel ||
       service?.tecnico ||
       service?.responsavel ||
@@ -275,7 +407,10 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
 
     return {
       id: serviceId,
-      tecnicoId: service?.tecnico_id ? String(service.tecnico_id) : undefined,
+      tecnicoId:
+        service?.tecnico_id || service?.tecnicoId || service?.tecnico?.id || service?.tecnico?._id
+          ? String(service?.tecnico_id || service?.tecnicoId || service?.tecnico?.id || service?.tecnico?._id)
+          : undefined,
       numeroPedido: String(service?.numero_pedido || service?.pedido_id || service?.numeroPedido || serviceId),
       descricao: String(service?.descricao_servico || service?.descricao || service?.description || 'Servico'),
       cliente: String(clientName),
@@ -285,6 +420,41 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
       data: formatScheduledDate(service?.data_agendada || service?.dataAgendada || service?.date) || '--/--/--',
       status: mapApiStatusToAdmin(service, String(tecnico)),
       checklist,
+      fotoUri: resolveAssetUrl(
+        service?.foto_instalacao ||
+          service?.fotoInstalacao ||
+          service?.fotoInstalacaoObj ||
+          service?.foto_url ||
+          service?.fotoUrl ||
+          service?.foto_path ||
+          service?.fotoPath ||
+          service?.imagem ||
+          service?.image ||
+          service?.anexo_foto ||
+          service?.anexoFoto ||
+          service?.foto,
+        assetOriginBase
+      ),
+      assinaturaUri: resolveAssetUrl(
+        service?.assinatura_url ||
+          service?.assinaturaUrl ||
+          service?.assinatura_path ||
+          service?.assinaturaPath ||
+          service?.assinatura_imagem ||
+          service?.assinaturaImagem ||
+          service?.assinatura,
+        assetOriginBase
+      ),
+      assinadoPor:
+        service?.assinado_por || service?.assinadoPor || service?.nome_assinante || service?.nomeAssinante || undefined,
+      horaConclusao:
+        formatTimeValue(
+          service?.hora_conclusao || service?.horaConclusao || service?.finalizado_em || service?.finalizadoEm || service?.updated_at
+        ) || undefined,
+      dataConclusao:
+        formatScheduledDate(
+          service?.data_conclusao || service?.dataConclusao || service?.finalizado_em || service?.finalizadoEm || service?.updated_at
+        ) || undefined,
       motivo: service?.motivo || service?.motivo_nao_realizado || service?.reason || undefined,
       telefone:
         service?.telefone_cliente ||
@@ -297,7 +467,7 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
 }
 
 export async function fetchAdminTecnicosFromApi(): Promise<AdminTecnicoUser[]> {
-  const res = await fetch(apiUrl('/api/admin/users/tecnicos?page=1&limit=100'), {
+  const res = await apiFetch('/api/admin/users/tecnicos?page=1&limit=100', {
     headers: adminHeaders(),
   });
   await throwIfNotOk(res, 'Nao foi possivel carregar os tecnicos');
@@ -314,7 +484,7 @@ export async function fetchAdminTecnicosFromApi(): Promise<AdminTecnicoUser[]> {
 }
 
 export async function fetchAdminDashboardFromApi(): Promise<AdminDashboardData> {
-  const res = await fetch(apiUrl('/api/admin/dashboard'), {
+  const res = await apiFetch('/api/admin/dashboard', {
     headers: adminHeaders(),
   });
   await throwIfNotOk(res, 'Nao foi possivel carregar o dashboard admin');
@@ -351,7 +521,7 @@ export async function assignAdminService(
 ): Promise<void> {
   const dataAgendadaIso = parseBrDateToIso(payload.dataAgendada) || payload.dataAgendada;
 
-  const res = await fetch(apiUrl(`/api/services/${serviceId}/admin/atribuir`), {
+  const res = await apiFetch(`/api/services/${serviceId}/admin/atribuir`, {
     method: 'PATCH',
     headers: adminHeaders(),
     body: JSON.stringify({

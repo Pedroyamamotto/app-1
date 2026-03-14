@@ -1,10 +1,34 @@
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+type UploadedPhoto = {
+  uri: string;
+  mimeType?: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+};
+
 const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
-  const [photo, setPhoto] = useState(null);
+  const [photo, setPhoto] = useState<UploadedPhoto | null>(null);
+
+  useEffect(() => {
+    if (!visible) {
+      setPhoto(null);
+    }
+  }, [visible]);
+
+  const handleAsset = (asset: ImagePicker.ImagePickerAsset) => {
+    setPhoto({
+      uri: asset.uri,
+      mimeType: asset.mimeType || undefined,
+      fileName: asset.fileName || undefined,
+      width: asset.width,
+      height: asset.height,
+    });
+  };
 
   const handleChoosePhoto = () => {
     Alert.alert(
@@ -21,13 +45,12 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
             }
 
             let result = await ImagePicker.launchCameraAsync({
-              allowsEditing: true,
-              aspect: [4, 3],
-              quality: 1,
+              allowsEditing: false,
+              quality: 0.9,
             });
 
             if (!result.canceled) {
-              setPhoto(result.assets[0].uri);
+              handleAsset(result.assets[0]);
             }
           }
         },
@@ -42,13 +65,12 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
 
             let result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [4, 3],
-              quality: 1,
+              allowsEditing: false,
+              quality: 0.9,
             });
 
             if (!result.canceled) {
-              setPhoto(result.assets[0].uri);
+              handleAsset(result.assets[0]);
             }
           }
         },
@@ -75,7 +97,7 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
 
           <View style={styles.infoBox}>
             <Feather name="camera" size={18} color="#0050b3" />
-            <Text style={styles.infoBoxText}>Tire uma foto clara da fechadura digital instalada</Text>
+            <Text style={styles.infoBoxText}>Aceita fotos em retrato ou paisagem, sem corte obrigatorio</Text>
           </View>
 
           <Text style={styles.uploadLabel}>Foto da Fechadura *</Text>
@@ -86,17 +108,26 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
 
           {photo && (
             <View style={styles.previewContainer}>
-              <Image source={{ uri: photo }} style={styles.previewImage} />
+              <Image source={{ uri: photo.uri }} style={styles.previewImage} resizeMode="contain" />
+              {photo.width && photo.height ? (
+                <Text style={styles.previewMeta}>{photo.width}x{photo.height}</Text>
+              ) : null}
             </View>
           )}
           
           <View style={styles.footer}>
-            <TouchableOpacity style={[styles.button, styles.buttonSecondary]} onPress={onBack}>
+            <TouchableOpacity
+              style={[styles.button, styles.buttonSecondary]}
+              onPress={() => {
+                setPhoto(null);
+                onBack();
+              }}
+            >
               <Text style={styles.buttonSecondaryText}>Voltar</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.button, photo ? styles.buttonPrimary : styles.buttonDisabled]}
-              onPress={() => onNext(photo)}
+              onPress={() => photo && onNext(photo)}
               disabled={!photo}
             >
               <Text style={styles.buttonText}>Próximo</Text>
@@ -120,7 +151,8 @@ const styles = StyleSheet.create({
   uploadButtonText: { color: '#495057', fontWeight: '500' },
   fileName: { color: '#7A1A1A', fontSize: 12 },
   previewContainer: { marginTop: 15, alignItems: 'center' },
-  previewImage: { width: 200, height: 150, borderRadius: 8 },
+  previewImage: { width: 260, height: 180, borderRadius: 8, backgroundColor: '#f8fafc' },
+  previewMeta: { marginTop: 8, fontSize: 12, color: '#64748b' },
   footer: { position: 'absolute', bottom: 25, left: 25, right: 25, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 15 },
   button: { flex: 1, padding: 15, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
   buttonPrimary: { backgroundColor: '#7A1A1A' },

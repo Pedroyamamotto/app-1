@@ -2,10 +2,10 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Formik } from 'formik';
 import React from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 
 const ForgotPasswordSchema = Yup.object().shape({
   email: Yup.string().email('E-mail inválido').required('O e-mail é obrigatório'),
@@ -16,7 +16,7 @@ export default function ForgotPasswordScreen() {
 
   const handleSendCode = async (values, { setSubmitting }) => {
     try {
-      const response = await fetch(apiUrl('/api/users/request-password-reset'), {
+      const response = await apiFetch('/api/users/request-password-reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -42,13 +42,25 @@ export default function ForgotPasswordScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-        <Formik
-          initialValues={{ email: '' }}
-          validationSchema={ForgotPasswordSchema}
-          onSubmit={handleSendCode}
+      <KeyboardAvoidingView
+        style={styles.keyboardContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {({ handleChange, handleBlur, handleSubmit, values, errors, touched, isSubmitting }) => (
-            <View style={styles.modalView}>
+          <Formik
+            initialValues={{ email: '' }}
+            validationSchema={ForgotPasswordSchema}
+            onSubmit={handleSendCode}
+            validateOnBlur={false}
+            validateOnChange={false}
+          >
+            {({ handleChange, handleBlur, handleSubmit, values, errors, isSubmitting, submitCount }) => (
+              <View style={styles.modalView}>
               <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
                 <FontAwesome name="close" size={24} color="black" />
               </TouchableOpacity>
@@ -67,7 +79,7 @@ export default function ForgotPasswordScreen() {
                   onChangeText={handleChange('email')}
                   onBlur={handleBlur('email')}
                 />
-                {touched.email && errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+                {submitCount > 0 && typeof errors.email === 'string' ? <Text style={styles.errorText}>{errors.email}</Text> : null}
               </View>
               <TouchableOpacity style={[styles.sendButton, isSubmitting && styles.disabledButton]} onPress={handleSubmit} disabled={isSubmitting}>
                 {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendButtonText}>Enviar código</Text>}
@@ -75,9 +87,11 @@ export default function ForgotPasswordScreen() {
               <TouchableOpacity onPress={() => navigation.goBack()}>
                 <Text style={styles.backLink}>Voltar para o login</Text>
               </TouchableOpacity>
-            </View>
-          )}
-        </Formik>
+              </View>
+            )}
+          </Formik>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -85,9 +99,15 @@ export default function ForgotPasswordScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
         backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    keyboardContainer: {
+      flex: 1,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     modalView: {
         margin: 20,

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 const NotCompletedModal = ({ visible, onClose, onConfirm }) => {
   const [reason, setReason] = useState('');
@@ -17,28 +17,38 @@ const NotCompletedModal = ({ visible, onClose, onConfirm }) => {
       visible={visible}
       onRequestClose={onClose}
     >
-      <View style={styles.centeredView}>
-        <View style={styles.modalView}>
-          <Text style={styles.modalTitle}>Serviço Não Realizado</Text>
-          <Text style={styles.modalSubtitle}>Informe o motivo pelo qual não foi possível realizar</Text>
+      <KeyboardAvoidingView
+        style={styles.centeredView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.modalView}>
+            <Text style={styles.modalTitle}>Serviço Não Realizado</Text>
+            <Text style={styles.modalSubtitle}>Informe o motivo pelo qual não foi possível realizar</Text>
 
-          <Text style={styles.inputLabel}>Motivo *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: Cliente não estava no local, problema técnico, falta de material..."
-            value={reason}
-            onChangeText={setReason}
-            multiline
-          />
+            <Text style={styles.inputLabel}>Motivo *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: Cliente não estava no local, problema técnico, falta de material..."
+              value={reason}
+              onChangeText={setReason}
+              multiline
+            />
 
-          <TouchableOpacity style={styles.confirmButton} onPress={handleConfirm}>
-            <Text style={styles.confirmButtonText}>Confirmar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-            <Text style={styles.cancelButtonText}>Cancelar</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+            <TouchableOpacity style={styles.confirmButton} onPress={handleConfirm}>
+              <Text style={styles.confirmButtonText}>Confirmar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -46,9 +56,12 @@ const NotCompletedModal = ({ visible, onClose, onConfirm }) => {
 const styles = StyleSheet.create({
   centeredView: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalView: {
     margin: 20,

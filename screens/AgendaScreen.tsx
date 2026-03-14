@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader from '../components/shared/AppHeader';
 import ServiceListCard from '../components/shared/ServiceListCard';
 import SummaryCard from '../components/shared/SummaryCard';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 import { useUser } from '../context/UserContext';
 
@@ -43,6 +43,31 @@ const AgendaScreen = () => {
 
   const normalizeStatus = (status) => String(status || '').toLowerCase();
 
+  const isAssignedToLoggedTechnician = (service) => {
+    const loggedId = String(tecnicoId || '').trim();
+    if (!loggedId) return false;
+
+    const candidates = [
+      service?.tecnico_id,
+      service?.tecnicoId,
+      service?.tecnico?.id,
+      service?.tecnico?._id,
+      service?.tecnico_user_id,
+      service?.tecnicoUserId,
+      service?.usuario_tecnico_id,
+      service?.usuarioTecnicoId,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    return candidates.includes(loggedId);
+  };
+
+  const isFinishedStatus = (status) =>
+    ['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(status));
+
+  const isOpenStatus = (status) => !isFinishedStatus(status);
+
   const getStatusStyle = (status) => {
     const normalized = normalizeStatus(status);
 
@@ -59,9 +84,46 @@ const AgendaScreen = () => {
 
   const getDateKey = (value) => {
     if (!value) return null;
-    const parsed = new Date(value);
+
+    const raw = String(value);
+    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    }
+
+    const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{2,4})$/);
+    if (brMatch) {
+      const year = brMatch[3].length === 2 ? `20${brMatch[3]}` : brMatch[3];
+      return `${year}-${brMatch[2]}-${brMatch[1]}`;
+    }
+
+    const parsed = new Date(raw);
     if (Number.isNaN(parsed.getTime())) return null;
     return parsed.toISOString().split('T')[0];
+  };
+
+  const getServiceDateRaw = (service) =>
+    service?.data_agendada ||
+    service?.dataAgendada ||
+    service?.date ||
+    service?.data ||
+    null;
+
+  const toBrDateLabel = (yyyyMmDd) => {
+    const parts = String(yyyyMmDd || '').split('-');
+    if (parts.length !== 3) return '';
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
+
+  const matchesSelectedDate = (serviceDateValue, selectedDateKey) => {
+    const direct = getDateKey(serviceDateValue);
+    if (direct && direct === selectedDateKey) {
+      return true;
+    }
+
+    const serviceBr = formatScheduledDate(serviceDateValue);
+    const selectedBr = toBrDateLabel(selectedDateKey);
+    return !!serviceBr && !!selectedBr && serviceBr === selectedBr;
   };
 
   const buildClientAddress = (cliente) => {
@@ -103,25 +165,23 @@ const AgendaScreen = () => {
     }
 
     try {
-      const query = tecnicoId ? `?limit=200&tecnicoId=${tecnicoId}` : '?limit=200';
-      const servicesRes = await fetch(apiUrl(`/api/services${query}`));
+      const query = tecnicoId ? `?limit=200&tecnicoId=${encodeURIComponent(tecnicoId)}&tecnico_id=${encodeURIComponent(tecnicoId)}` : '?limit=200';
+      const servicesRes = await apiFetch(`/api/services${query}`);
       const servicesPayload = await servicesRes.json().catch(() => ({}));
       const services = normalizeServices(servicesPayload);
+      const tecnicoServices = services.filter((service) => isAssignedToLoggedTechnician(service));
 
-      const activeServices = services.filter((service) => {
-        const status = normalizeStatus(service?.status);
-        return ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(status);
-      });
+      const activeServices = tecnicoServices.filter((service) => isOpenStatus(service?.status));
 
       // Mantem todos os servicos para o resumo ficar consistente com Home/Historico.
-      setAllAppointments((prev) => (isSame(prev, services) ? prev : services));
+      setAllAppointments((prev) => (isSame(prev, tecnicoServices) ? prev : tecnicoServices));
 
       const uniqueClientIds = [...new Set(activeServices.map((s) => s?.cliente_id).filter(Boolean))];
 
       if (uniqueClientIds.length) {
         const clientResults = await Promise.allSettled(
           uniqueClientIds.map(async (clientId) => {
-            const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+            const clientRes = await apiFetch(`/api/clientes/${clientId}`);
             const clientPayload = await clientRes.json().catch(() => ({}));
             return { clientId, clientPayload };
           })
@@ -162,15 +222,15 @@ const AgendaScreen = () => {
   const summaryStats = useMemo(() => ({
     concluido: allAppointments.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length,
     naoConcluida: allAppointments.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length,
-    emEspera: allAppointments.filter((s) => ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length,
+    emEspera: allAppointments.filter((s) => isOpenStatus(s?.status)).length,
   }), [allAppointments]);
 
   const { filteredServices, markedDates } = useMemo(() => {
-    const openAppointments = allAppointments.filter((service) => ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(service?.status)));
-    const servicesForDay = openAppointments.filter((service) => getDateKey(service?.data_agendada || service?.dataAgendada || service?.date) === selectedDate);
+    const openAppointments = allAppointments.filter((service) => isOpenStatus(service?.status));
+    const servicesForDay = openAppointments.filter((service) => matchesSelectedDate(getServiceDateRaw(service), selectedDate));
     const marks = {};
     openAppointments.forEach((service) => {
-      const dateKey = getDateKey(service?.data_agendada || service?.dataAgendada || service?.date);
+      const dateKey = getDateKey(getServiceDateRaw(service));
       if (!dateKey) return;
       marks[dateKey] = { ...marks[dateKey], marked: true, dotColor: '#1890ff' };
     });
@@ -219,7 +279,7 @@ const AgendaScreen = () => {
             const clientData = clientsById?.[clientId];
             const endereco = buildClientAddress(clientData);
             const hora = item?.hora_agendada || item?.horaInicio || item?.time || '--:--';
-            const data = item?.data_agendada || item?.dataAgendada || item?.date;
+            const data = getServiceDateRaw(item);
             const statusStyle = getStatusStyle(item?.status);
             const dataTexto = formatScheduledDate(data) ? `Agendado: ${formatScheduledDate(data)}` : 'Data não informada';
 

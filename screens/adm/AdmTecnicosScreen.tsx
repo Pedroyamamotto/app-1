@@ -10,92 +10,11 @@ import { formatLockDisplayName } from '../../constants/serviceDisplay';
 
 type Tecnico = AdminTechnicianData;
 
-const TECNICOS: Tecnico[] = [
-  {
-    id: '1',
-    nome: 'Joao Silva',
-    email: 'joao@yamamotto.com.br',
-    telefone: '(11) 98765-2101',
-    cpf: '123.456.789-10',
-    area: 'Instalacao e manutencao',
-    cidadeBase: 'Sao Paulo - SP',
-    especialidade: 'Fechaduras digitais residenciais e comerciais',
-    disponibilidade: 'Disponivel ate 18:00',
-    total: 2,
-    ativos: 1,
-    concluidos: 0,
-    avaliacao: '4.8',
-    observacoes: 'Tecnico senior com foco em instalacao premium e configuracao avancada.',
-    atendimentos: [
-      { id: 'a1', cliente: 'Carlos Eduardo Mendes', servico: 'Instalacao YM-500', status: 'Em andamento', data: '12/03/26', hora: '10:30' },
-      { id: 'a2', cliente: 'Aline Prado', servico: 'Visita tecnica preventiva', status: 'Aguardando', data: '12/03/26', hora: '15:00' },
-    ],
-  },
-  {
-    id: '2',
-    nome: 'Maria Santos',
-    email: 'maria@yamamotto.com.br',
-    telefone: '(11) 98765-2102',
-    cpf: '234.567.890-11',
-    area: 'Suporte e manutencao',
-    cidadeBase: 'Sao Paulo - SP',
-    especialidade: 'Reprogramacao, sensores e diagnostico de falhas',
-    disponibilidade: 'Em rota para atendimento',
-    total: 2,
-    ativos: 1,
-    concluidos: 1,
-    avaliacao: '4.9',
-    observacoes: 'Excelente taxa de resolucao na primeira visita.',
-    atendimentos: [
-      { id: 'a3', cliente: 'Mariana Costa', servico: 'Reprogramacao YM-700', status: 'Em andamento', data: '12/03/26', hora: '14:20' },
-      { id: 'a4', cliente: 'Ricardo Nogueira', servico: 'Troca de modulo', status: 'Concluido', data: '11/03/26', hora: '16:10' },
-    ],
-  },
-  {
-    id: '3',
-    nome: 'Pedro Costa',
-    email: 'pedro@yamamotto.com.br',
-    telefone: '(11) 98765-2103',
-    cpf: '345.678.901-22',
-    area: 'Campo e instalacao',
-    cidadeBase: 'Osasco - SP',
-    especialidade: 'Sensores, modulos e kits corporativos',
-    disponibilidade: 'Disponivel para novo chamado',
-    total: 2,
-    ativos: 1,
-    concluidos: 1,
-    avaliacao: '4.7',
-    observacoes: 'Atua em regioes metropolitanas com foco em contratos empresariais.',
-    atendimentos: [
-      { id: 'a5', cliente: 'Paulo Ricardo', servico: 'Ajuste de sensores YM-900', status: 'Concluido', data: '11/03/26', hora: '16:10' },
-      { id: 'a6', cliente: 'Condominio Alpha', servico: 'Instalacao de kit corporativo', status: 'Em andamento', data: '12/03/26', hora: '13:30' },
-    ],
-  },
-  {
-    id: '4',
-    nome: 'Ana Rodrigues',
-    email: 'ana@yamamotto.com.br',
-    telefone: '(11) 98765-2104',
-    cpf: '456.789.012-33',
-    area: 'Pos-venda',
-    cidadeBase: 'Barueri - SP',
-    especialidade: 'Checklists finais e orientacao ao cliente',
-    disponibilidade: 'Encerrado expediente de hoje',
-    total: 1,
-    ativos: 0,
-    concluidos: 1,
-    avaliacao: '4.9',
-    observacoes: 'Responsavel por validacao final e acompanhamento do cliente.',
-    atendimentos: [
-      { id: 'a7', cliente: 'Fernanda Alves', servico: 'Validacao pos-instalacao YM-450', status: 'Concluido', data: '12/03/26', hora: '09:00' },
-    ],
-  },
-];
-
 export default function AdmTecnicosScreen() {
   const [selectedTecnico, setSelectedTecnico] = useState<Tecnico | null>(null);
-  const [tecnicos, setTecnicos] = useState<Tecnico[]>(TECNICOS);
-  const [overview, setOverview] = useState({ aguardando: 3, atribuidos: 2, concluidos: 1, total: TECNICOS.reduce((sum, t) => sum + t.total, 0) });
+  const [tecnicos, setTecnicos] = useState<Tecnico[]>([]);
+  const [overview, setOverview] = useState({ aguardando: 0, atribuidos: 0, concluidos: 0, total: 0 });
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadTecnicos = useCallback(async () => {
     try {
@@ -105,10 +24,11 @@ export default function AdmTecnicosScreen() {
       ]);
 
       const fromServices = buildTechniciansFromServices(services);
-      const serviceStatsByName = new Map(fromServices.map((item) => [item.nome, item]));
+      const normalizeName = (value: string) => String(value || '').trim().toLowerCase();
+      const serviceStatsByName = new Map(fromServices.map((item) => [normalizeName(item.nome), item]));
 
       const merged = tecnicoUsers.map((tecnico) => {
-        const stats = serviceStatsByName.get(tecnico.nome);
+        const stats = serviceStatsByName.get(normalizeName(tecnico.nome));
         return {
           id: tecnico.id,
           nome: tecnico.nome,
@@ -129,10 +49,22 @@ export default function AdmTecnicosScreen() {
       });
 
       const semCadastro = fromServices.filter(
-        (item) => !tecnicoUsers.some((tecnico) => tecnico.nome === item.nome)
+        (item) => !tecnicoUsers.some((tecnico) => normalizeName(tecnico.nome) === normalizeName(item.nome))
       );
 
-      setTecnicos([...merged, ...semCadastro]);
+      const combined = [...merged, ...semCadastro];
+      const uniqueTecnicos = combined.filter((item, index, array) => {
+        const id = String(item.id || '').trim();
+        if (id) {
+          return array.findIndex((candidate) => String(candidate.id || '').trim() === id) === index;
+        }
+
+        const nameKey = normalizeName(item.nome);
+        return array.findIndex((candidate) => normalizeName(candidate.nome) === nameKey) === index;
+      });
+
+      setTecnicos(uniqueTecnicos);
+      setLoadError(null);
       setOverview({
         aguardando: services.filter((service) => service.status === 'aguardando').length,
         atribuidos: services.filter((service) => service.status === 'atribuido').length,
@@ -141,6 +73,9 @@ export default function AdmTecnicosScreen() {
       });
     } catch (error) {
       console.warn('Erro ao carregar tecnicos admin:', error);
+      setLoadError(error instanceof Error ? error.message : 'Nao foi possivel carregar os tecnicos da API admin.');
+      setTecnicos([]);
+      setOverview({ aguardando: 0, atribuidos: 0, concluidos: 0, total: 0 });
     }
   }, []);
 
@@ -213,7 +148,9 @@ export default function AdmTecnicosScreen() {
         {tecnicos.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Nenhum tecnico encontrado</Text>
-            <Text style={styles.emptySubtitle}>A API ainda nao retornou servicos com tecnico atribuido.</Text>
+            <Text style={styles.emptySubtitle}>
+              {loadError || 'A API ainda nao retornou servicos com tecnico atribuido.'}
+            </Text>
           </View>
         ) : null}
 

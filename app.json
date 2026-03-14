@@ -1,16 +1,21 @@
 {
   "expo": {
-    "name": "yamaservios",
+    "name": "ServiYama",
     "slug": "yamaservios",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "yamaservios",
+    "scheme": "serviyama",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yamamotto.yamaservios",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.yamamotto.yamaservios",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -37,6 +42,11 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c1df715b-e44b-46b1-836c-9855e5219a1c"
+      }
+    }
   }
 }

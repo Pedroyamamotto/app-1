@@ -38,10 +38,12 @@ type ChecklistItem = {
 };
 
 type ServiceDetail = Omit<AdminService, 'checklist'> & {
-  horaConclusao: string;
+  horaConclusao?: string;
+  dataConclusao?: string;
   checklist: ChecklistItem[];
-  fotoUri: string;
-  assinadoPor: string;
+  fotoUri?: string;
+  assinaturaUri?: string;
+  assinadoPor?: string;
 };
 
 type NaoRealizadoDetail = AdminService & {
@@ -60,18 +62,6 @@ const normalizeSearchValue = (value: unknown) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
-
-const MOCK_CHECKLIST: ChecklistItem[] = [
-  { id: 'c1', label: 'Instalacao da fechadura digital concluida', done: true },
-  { id: 'c2', label: 'Configuracao e cadastro de senhas/digitais realizado', done: true },
-  { id: 'c3', label: 'Teste de abertura com digital/senha/cartao aprovado', done: true },
-  { id: 'c4', label: 'Verificacao de bateria e autonomia', done: true },
-  { id: 'c5', label: 'Teste de travamento automatico funcionando', done: true },
-  { id: 'c6', label: 'Orientacao ao cliente sobre uso e manutencao', done: true },
-  { id: 'c7', label: 'Sincronizacao com aplicativo (se aplicavel)', done: false },
-  { id: 'c8', label: 'Entrega de cartoes/chaves extras e manual', done: true },
-  { id: 'c9', label: 'Limpeza do local de instalacao', done: true },
-];
 
 const DEFAULT_FILTERS: FilterState = {
   status: 'Todos os Status',
@@ -94,8 +84,6 @@ const PERIODO_OPTIONS = [
   'Este Mes',
 ];
 
-const ASSIGN_OPTIONS = ['Selecionar depois', 'Joao Silva', 'Maria Santos', 'Pedro Costa', 'Ana Rodrigues'];
-
 const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
   nomeCompleto: '',
   telefone: '',
@@ -107,55 +95,6 @@ const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
   tecnicoResponsavel: 'Selecionar depois',
   dataHoraVisita: '',
 };
-
-const mockServices: AdminService[] = [
-  {
-    id: '1',
-    numeroPedido: 'BLING-10234',
-    descricao: 'Instalacao de Fechadura Digital Yamamotto YM-500',
-    cliente: 'Carlos Eduardo Mendes',
-    tecnico: 'Joao Silva',
-    endereco: 'Av. Paulista, 1578 - Bela Vista, Sao Paulo - SP',
-    hora: '10:30',
-    data: '04/03/26',
-    status: 'aguardando',
-  },
-  {
-    id: '2',
-    numeroPedido: 'BLING-10235',
-    descricao: 'Manutencao e reprogramacao Fechadura Yamamotto YM-700',
-    cliente: 'Mariana Costa',
-    tecnico: 'Maria Santos',
-    endereco: 'Rua Haddock Lobo, 595 - Consolacao, Sao Paulo - SP',
-    hora: '14:20',
-    data: '04/03/26',
-    status: 'atribuido',
-  },
-  {
-    id: '3',
-    numeroPedido: 'BLING-10236',
-    descricao: 'Troca de modulo e ajuste de sensores YM-900',
-    cliente: 'Paulo Ricardo',
-    tecnico: 'Pedro Costa',
-    endereco: 'Rua da Consolacao, 88 - Centro, Sao Paulo - SP',
-    hora: '16:10',
-    data: '05/03/26',
-    status: 'concluido',
-  },
-  {
-    id: '4',
-    numeroPedido: 'BLING-10237',
-    descricao: 'Reset e substituicao de teclado numerico YM-450',
-    cliente: 'Fernanda Alves',
-    tecnico: 'Ana Rodrigues',
-    endereco: 'Rua da Liberdade, 120 - Liberdade, Sao Paulo - SP',
-    hora: '09:00',
-    data: '12/03/26',
-    status: 'nao_realizado',
-    motivo: 'Cliente nao estava presente no local no horario agendado. Tentamos contato por telefone sem sucesso. Necessario reagendar a visita.',
-    telefone: '(11) 98765-4321',
-  },
-];
 
 const statusLabelByCode: Record<AdminService['status'], string> = {
   aguardando: 'Aguardando',
@@ -255,7 +194,16 @@ function fromCalendarDate(yyyymmdd: string): string {
   return `${p[2]}/${p[1]}/${p[0].slice(-2)}`;
 }
 
+function getTodayCalendarDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const AdmHomeScreen = () => {
+  const todayCalendarDate = getTodayCalendarDate();
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [selectedService, setSelectedService] = useState<ServiceDetail | null>(null);
@@ -367,11 +315,7 @@ const AdmHomeScreen = () => {
 
     setSelectedService({
       ...item,
-      telefone: item.telefone ?? '(11) 96543-2109',
-      horaConclusao: '12:30',
-      checklist: checklistFromApi.length ? checklistFromApi : MOCK_CHECKLIST,
-      fotoUri: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800',
-      assinadoPor: item.cliente,
+      checklist: checklistFromApi,
     });
   };
 
@@ -382,9 +326,10 @@ const AdmHomeScreen = () => {
     });
   };
   const [isAssignDropdownOpen, setIsAssignDropdownOpen] = useState(false);
-  const [services, setServices] = useState<AdminService[]>(mockServices);
+  const [services, setServices] = useState<AdminService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [draftFilters, setDraftFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -437,37 +382,10 @@ const AdmHomeScreen = () => {
       return;
     }
 
-    const now = new Date();
-    const defaultDay = String(now.getDate()).padStart(2, '0');
-    const defaultMonth = String(now.getMonth() + 1).padStart(2, '0');
-    const defaultYear = String(now.getFullYear()).slice(-2);
-    const defaultDate = `${defaultDay}/${defaultMonth}/${defaultYear}`;
-    const defaultHour = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-    const input = newServiceForm.dataHoraVisita.trim();
-    const match = input.match(/(\d{2}\/\d{2}\/\d{2,4})\s+(\d{2}:\d{2})/);
-    const parsedDate = match?.[1] || defaultDate;
-    const parsedHour = match?.[2] || defaultHour;
-    const assignedTech = newServiceForm.tecnicoResponsavel === 'Selecionar depois'
-      ? 'Nao atribuido'
-      : newServiceForm.tecnicoResponsavel;
-
-    const created: AdminService = {
-      id: String(Date.now()),
-      numeroPedido: `BLING-${10230 + services.length + 1}`,
-      descricao: newServiceForm.descricao.trim(),
-      cliente: newServiceForm.nomeCompleto.trim(),
-      tecnico: assignedTech,
-      endereco: newServiceForm.endereco.trim() || 'Endereco nao informado',
-      hora: parsedHour,
-      data: parsedDate,
-      status: assignedTech === 'Nao atribuido' ? 'aguardando' : 'atribuido',
-    };
-
-    setServices((prev) => [created, ...prev]);
-    setAppliedFilters(DEFAULT_FILTERS);
-    setDraftFilters(DEFAULT_FILTERS);
-    closeCreateModal();
+    Alert.alert(
+      'Cadastro indisponivel',
+      'O app nao cria mais pedidos ficticios localmente. Para cadastrar pedidos reais, esta acao precisa ser ligada a um endpoint de criacao no backend.'
+    );
   };
 
   const loadAdminServices = useCallback(async () => {
@@ -481,8 +399,10 @@ const AdmHomeScreen = () => {
         fetchAdminTecnicosFromApi(),
       ]);
       setServices(nextServices);
+        setLoadError(null);
       setTecnicosApi(nextTecnicos);
     } catch (error) {
+        setLoadError(error instanceof Error ? error.message : 'Nao foi possivel carregar os dados da area admin.');
       console.warn('Erro ao carregar pedidos admin:', error);
     } finally {
       setIsLoading(false);
@@ -518,6 +438,10 @@ const AdmHomeScreen = () => {
     ].sort();
     return ['Todos os Tecnicos', ...dynamicTecnicos];
   }, [services, tecnicosApi]);
+
+  const createAssignOptions = useMemo(() => {
+    return ['Selecionar depois', ...tecnicosApi.map((tecnico) => tecnico.nome).sort((a, b) => a.localeCompare(b))];
+  }, [tecnicosApi]);
 
   const tecnicoAtribuidoSelecionado = useMemo(() => {
     return tecnicosApi.find((tecnico) => tecnico.id === atribuirForm.tecnicoId) || null;
@@ -614,6 +538,16 @@ const AdmHomeScreen = () => {
           </View>
         ) : null}
 
+        {!isLoading && loadError ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Falha ao carregar rotas admin</Text>
+            <Text style={styles.emptySubtitle}>{loadError}</Text>
+            <TouchableOpacity style={styles.retryLoadButton} activeOpacity={0.9} onPress={loadAdminServices}>
+              <Text style={styles.retryLoadButtonText}>Tentar novamente</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {filteredServices.map((item) => (
           <TouchableOpacity
             key={item.id}
@@ -634,7 +568,7 @@ const AdmHomeScreen = () => {
 
             <View style={styles.infoRow}>
               <Feather name="phone" size={16} color="#16a34a" />
-              <Text style={styles.infoText}>{item.telefone ?? '(11) 98765-4321'}</Text>
+              <Text style={styles.infoText}>{item.telefone || 'Telefone nao informado'}</Text>
             </View>
 
             <View style={styles.infoRow}>
@@ -923,7 +857,7 @@ const AdmHomeScreen = () => {
               <Text style={styles.inputLabel}>Descricao *</Text>
               <TextInput
                 style={[styles.input, styles.inputMultiline]}
-                placeholder="Ex: Instalacao de Fechadura Digital Yamamotto YM-500"
+                placeholder="Ex: Instalacao de Fechadura Digital ServiYama SY-500"
                 placeholderTextColor="#64748b"
                 multiline
                 textAlignVertical="top"
@@ -948,7 +882,7 @@ const AdmHomeScreen = () => {
 
               {isAssignDropdownOpen ? (
                 <View style={styles.dropdownList}>
-                  {ASSIGN_OPTIONS.map((option, index) => {
+                  {createAssignOptions.map((option, index) => {
                     const isSelected = newServiceForm.tecnicoResponsavel === option;
                     return (
                       <TouchableOpacity
@@ -956,7 +890,7 @@ const AdmHomeScreen = () => {
                         style={[
                           styles.dropdownOption,
                           isSelected && styles.dropdownOptionSelected,
-                          index === ASSIGN_OPTIONS.length - 1 && styles.dropdownOptionLast,
+                          index === createAssignOptions.length - 1 && styles.dropdownOptionLast,
                         ]}
                         activeOpacity={0.9}
                         onPress={() => {
@@ -1042,7 +976,7 @@ const AdmHomeScreen = () => {
                 </View>
                 <View style={styles.detailInfoRow}>
                   <Feather name="phone" size={16} color="#64748b" />
-                  <Text style={styles.detailInfoText}>{selectedNaoRealizado.telefone ?? '(11) 98765-4321'}</Text>
+                  <Text style={styles.detailInfoText}>{selectedNaoRealizado.telefone || 'Telefone nao informado'}</Text>
                 </View>
                 <View style={styles.detailInfoRow}>
                   <Feather name="map-pin" size={16} color="#64748b" />
@@ -1141,7 +1075,7 @@ const AdmHomeScreen = () => {
                 </View>
                 <View style={styles.detailInfoRow}>
                   <Feather name="phone" size={16} color="#64748b" />
-                  <Text style={styles.detailInfoText}>{atribuirTarget.telefone ?? '(11) 96543-2109'}</Text>
+                  <Text style={styles.detailInfoText}>{atribuirTarget.telefone || 'Telefone nao informado'}</Text>
                 </View>
                 <View style={styles.detailInfoRow}>
                   <Feather name="map-pin" size={16} color="#64748b" />
@@ -1213,6 +1147,7 @@ const AdmHomeScreen = () => {
                 <View style={styles.calendarWrapper}>
                   <Calendar
                     current={toCalendarDate(atribuirForm.data) || undefined}
+                    minDate={todayCalendarDate}
                     onDayPress={(day) => {
                       setAtribuirForm((p) => ({ ...p, data: fromCalendarDate(day.dateString) }));
                       setShowAtribuirCal(false);
@@ -1383,6 +1318,7 @@ const AdmHomeScreen = () => {
               <View style={styles.calendarWrapper}>
                 <Calendar
                   current={toCalendarDate(reagendarForm.data) || undefined}
+                  minDate={todayCalendarDate}
                   onDayPress={(day) => {
                     setReagendarForm((p) => ({ ...p, data: fromCalendarDate(day.dateString) }));
                     setShowReagendarCal(false);
@@ -1525,7 +1461,7 @@ const AdmHomeScreen = () => {
                 </View>
                 <View style={styles.detailInfoRow}>
                   <Feather name="phone" size={16} color="#64748b" />
-                  <Text style={styles.detailInfoText}>{selectedService.telefone}</Text>
+                  <Text style={styles.detailInfoText}>{selectedService.telefone || 'Telefone nao informado'}</Text>
                 </View>
                 <View style={styles.detailInfoRow}>
                   <Feather name="map-pin" size={16} color="#64748b" />
@@ -1544,7 +1480,7 @@ const AdmHomeScreen = () => {
 
                 <View style={styles.detailDivider} />
                 <Text style={styles.detailConclusaoText}>
-                  Concluido em: {selectedService.data} as {selectedService.horaConclusao}
+                  Concluido em: {selectedService.dataConclusao || selectedService.data} as {selectedService.horaConclusao || 'Horario nao informado'}
                 </Text>
               </View>
 
@@ -1554,30 +1490,39 @@ const AdmHomeScreen = () => {
                 <Text style={styles.detailSectionTitle}>Checklist de Instalacao</Text>
               </View>
 
-              {selectedService.checklist.map((ci) => (
-                <View
-                  key={ci.id}
-                  style={[styles.checklistItem, ci.done ? styles.checklistItemDone : styles.checklistItemPending]}
-                >
-                  {ci.done ? (
-                    <View style={styles.checklistIconDone}>
-                      <Feather name="check" size={14} color="#fff" />
+              {selectedService.checklist.length ? (
+                <>
+                  {selectedService.checklist.map((ci) => (
+                    <View
+                      key={ci.id}
+                      style={[styles.checklistItem, ci.done ? styles.checklistItemDone : styles.checklistItemPending]}
+                    >
+                      {ci.done ? (
+                        <View style={styles.checklistIconDone}>
+                          <Feather name="check" size={14} color="#fff" />
+                        </View>
+                      ) : (
+                        <View style={styles.checklistIconPending} />
+                      )}
+                      <Text style={[styles.checklistLabel, !ci.done && styles.checklistLabelPending]}>
+                        {ci.label}
+                      </Text>
                     </View>
-                  ) : (
-                    <View style={styles.checklistIconPending} />
-                  )}
-                  <Text style={[styles.checklistLabel, !ci.done && styles.checklistLabelPending]}>
-                    {ci.label}
-                  </Text>
-                </View>
-              ))}
+                  ))}
 
-              <View style={styles.checklistSummaryBox}>
-                <Feather name="check" size={14} color="#2563eb" />
-                <Text style={styles.checklistSummaryText}>
-                  {selectedService.checklist.filter((c) => c.done).length} de {selectedService.checklist.length} itens realizados
-                </Text>
-              </View>
+                  <View style={styles.checklistSummaryBox}>
+                    <Feather name="check" size={14} color="#2563eb" />
+                    <Text style={styles.checklistSummaryText}>
+                      {selectedService.checklist.filter((c) => c.done).length} de {selectedService.checklist.length} itens realizados
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>Checklist nao enviado</Text>
+                  <Text style={styles.emptySubtitle}>Este servico ainda nao possui checklist salvo no backend.</Text>
+                </View>
+              )}
 
               {/* Foto */}
               <View style={styles.detailSectionHeader}>
@@ -1585,11 +1530,17 @@ const AdmHomeScreen = () => {
                 <Text style={styles.detailSectionTitle}>Foto da Instalacao</Text>
               </View>
 
-              <Image
-                source={{ uri: selectedService.fotoUri }}
-                style={styles.detailPhoto}
-                resizeMode="cover"
-              />
+              {selectedService.fotoUri ? (
+                <Image
+                  source={{ uri: selectedService.fotoUri }}
+                  style={styles.detailPhoto}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.signatureBox}>
+                  <Text style={styles.signaturePlaceholder}>Nenhuma foto enviada pelo tecnico</Text>
+                </View>
+              )}
 
               {/* Assinatura */}
               <View style={styles.detailSectionHeader}>
@@ -1597,10 +1548,22 @@ const AdmHomeScreen = () => {
                 <Text style={styles.detailSectionTitle}>Assinatura do Cliente</Text>
               </View>
 
-              <View style={styles.signatureBox}>
-                <Text style={styles.signaturePlaceholder}>Assinatura do Cliente</Text>
-              </View>
-              <Text style={styles.signedByText}>Assinado por {selectedService.assinadoPor}</Text>
+              {selectedService.assinaturaUri ? (
+                <View style={styles.signatureBox}>
+                  <Image
+                    source={{ uri: selectedService.assinaturaUri }}
+                    style={styles.signatureImage}
+                    resizeMode="contain"
+                  />
+                </View>
+              ) : (
+                <View style={styles.signatureBox}>
+                  <Text style={styles.signaturePlaceholder}>Nenhuma assinatura enviada</Text>
+                </View>
+              )}
+              {selectedService.assinadoPor ? (
+                <Text style={styles.signedByText}>Assinado por {selectedService.assinadoPor}</Text>
+              ) : null}
 
               <TouchableOpacity
                 style={styles.closeDetailButton}
@@ -2170,6 +2133,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     flex: 1,
     lineHeight: 20,
+  retryLoadButton: {
+    marginTop: 12,
+    backgroundColor: '#7A1A1A',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignSelf: 'center',
+  },
+  retryLoadButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
   },
   detailTechRow: {
     flexDirection: 'row',
@@ -2292,6 +2268,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#fff',
     marginBottom: 6,
+  },
+  signatureImage: {
+    width: '60%',
+    height: 44,
+    alignSelf: 'center',
   },
   signaturePlaceholder: {
     color: '#94a3b8',

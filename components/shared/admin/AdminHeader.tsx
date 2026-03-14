@@ -7,8 +7,8 @@ export default function AdminHeader() {
 
   return (
     <View style={styles.header}>
-      <View>
-        <Text style={styles.headerTitle}>Yamamotto</Text>
+      <View style={styles.brandBlock}>
+        <Text style={styles.headerTitle}>ServiYama</Text>
         <Text style={styles.headerSubtitle}>Gestao de Servicos</Text>
         <Text style={styles.headerSubtitle}>Gerente: {user?.name ?? 'Admin'}</Text>
       </View>
@@ -32,11 +32,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
+  brandBlock: {
+    flex: 1,
+    paddingRight: 12,
+  },
   headerTitle: {
     color: '#fff',
-    fontSize: 40 / 1.5,
+    fontSize: 22,
     fontWeight: '800',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   headerSubtitle: {
     color: '#fff',

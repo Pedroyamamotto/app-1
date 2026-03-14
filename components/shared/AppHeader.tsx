@@ -34,14 +34,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
+    flexShrink: 1,
   },
   headerSubtitle: {
     fontSize: 14,
     color: '#fff',
+    flexShrink: 1,
   },
 });

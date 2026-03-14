@@ -7,7 +7,7 @@ import ChecklistModal from '../components/ChecklistModal';
 import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 
 type ServiceData = {
@@ -24,6 +24,17 @@ type ServiceData = {
   observacoes?: string;
 };
 
+type UploadedPhoto = {
+  uri: string;
+  mimeType?: string;
+  fileName?: string;
+};
+
+type ChecklistCompletePayload = {
+  items: string[];
+  obs?: string;
+};
+
 export default function PedidoScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -37,7 +48,18 @@ export default function PedidoScreen() {
   const [isPhotoUploadVisible, setPhotoUploadVisible] = useState(false);
   const [isSignatureVisible, setSignatureVisible] = useState(false);
   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
-  const [completionData, setCompletionData] = useState<{ checklist: string[]; photoUri: string | null }>({ checklist: [], photoUri: null });
+  const [completionData, setCompletionData] = useState<{ checklist: string[]; checklistObs: string; photo: UploadedPhoto | null }>({ checklist: [], checklistObs: '', photo: null });
+
+  const resetCompletionDraft = () => {
+    setCompletionData({ checklist: [], checklistObs: '', photo: null });
+  };
+
+  const closeCompletionFlow = () => {
+    setChecklistVisible(false);
+    setPhotoUploadVisible(false);
+    setSignatureVisible(false);
+    resetCompletionDraft();
+  };
 
   const serviceId = id || '';
   const normalizeStatus = (status: unknown) => String(status || '').toLowerCase();
@@ -84,14 +106,14 @@ export default function PedidoScreen() {
 
       setIsLoading(true);
       try {
-        const serviceRes = await fetch(apiUrl(`/api/services/${serviceId}`));
+        const serviceRes = await apiFetch(`/api/services/${serviceId}`);
         const serviceData = await serviceRes.json().catch(() => ({}));
         const payload = serviceData?.service || serviceData?.data || serviceData;
         setService(payload);
 
         const clientId = payload?.cliente_id;
         if (clientId) {
-          const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+          const clientRes = await apiFetch(`/api/clientes/${clientId}`);
           const clientData = await clientRes.json().catch(() => ({}));
           setClient(clientData?.cliente || clientData?.data || clientData);
         }
@@ -110,13 +132,16 @@ export default function PedidoScreen() {
   const clientName = client?.cliente || client?.nome || 'Cliente não informado';
   const phone = client?.telefone || client?.phone || '-';
 
-  const handleChecklistComplete = (items: string[]) => {
+  const handleChecklistComplete = (payload: ChecklistCompletePayload | string[]) => {
     if (isFinalized) {
       Alert.alert('Serviço já finalizado', 'Este serviço já foi concluído ou marcado como não realizado.');
       return;
     }
 
-    setCompletionData((prev) => ({ ...prev, checklist: items }));
+    const items = Array.isArray(payload) ? payload : payload?.items || [];
+    const checklistObs = Array.isArray(payload) ? '' : String(payload?.obs || '').trim();
+
+    setCompletionData((prev) => ({ ...prev, checklist: items, checklistObs }));
     setChecklistVisible(false);
     setPhotoUploadVisible(true);
   };
@@ -124,12 +149,62 @@ export default function PedidoScreen() {
   const handlePhotoUploadBack = () => {
     setPhotoUploadVisible(false);
     setChecklistVisible(true);
+    setCompletionData((prev) => ({ ...prev, photo: null }));
   };
 
-  const handlePhotoUploadNext = (photoUri: string) => {
-    setCompletionData((prev) => ({ ...prev, photoUri }));
+  const handlePhotoUploadNext = (photo: UploadedPhoto) => {
+    setCompletionData((prev) => ({ ...prev, photo }));
     setPhotoUploadVisible(false);
     setSignatureVisible(true);
+  };
+
+  const inferMimeType = (nameOrUri: string) => {
+    const lower = String(nameOrUri || '').toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+    return 'image/jpeg';
+  };
+
+  const buildPhotoFileName = (photo: UploadedPhoto, mimeType: string) => {
+    const fromSource = String(photo.fileName || photo.uri.split('/').pop() || '').trim();
+    if (fromSource && /\.[a-z0-9]+$/i.test(fromSource)) {
+      return fromSource;
+    }
+
+    const extByMime: Record<string, string> = {
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+      'image/jpeg': 'jpg',
+    };
+
+    const ext = extByMime[mimeType] || 'jpg';
+    return `foto.${ext}`;
+  };
+
+  const buildCompletionFormData = (signature: string, photoToSend: UploadedPhoto | null) => {
+    const form = new FormData();
+    form.append('status', 'concluido');
+    form.append('checklist', JSON.stringify(completionData.checklist));
+    if (completionData.checklistObs) {
+      form.append('observacoes_checklist', completionData.checklistObs);
+    }
+    form.append('assinatura', signature);
+
+    if (photoToSend?.uri) {
+      const mimeType = photoToSend.mimeType || inferMimeType(photoToSend.fileName || photoToSend.uri);
+      const fileName = buildPhotoFileName(photoToSend, mimeType);
+      (form as any).append('foto', {
+        uri: photoToSend.uri,
+        type: mimeType,
+        name: fileName,
+      });
+    }
+
+    return form;
   };
 
   const handleSignatureBack = () => {
@@ -147,22 +222,15 @@ export default function PedidoScreen() {
     setIsSending(true);
 
     try {
-      const form = new FormData();
-      form.append('status', 'concluido');
-      form.append('checklist', JSON.stringify(completionData.checklist));
-      form.append('assinatura', signature);
+      const sendConclusion = async (photoToSend: UploadedPhoto | null) => {
+        const form = buildCompletionFormData(signature, photoToSend);
+        return apiFetch(`/api/services/${serviceId}`, {
+          method: 'PATCH',
+          body: form,
+        });
+      };
 
-      if (completionData.photoUri) {
-        const filename = completionData.photoUri.split('/').pop() || 'foto.jpg';
-        const ext = (filename.split('.').pop() || 'jpg').toLowerCase();
-        const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
-        (form as any).append('foto', { uri: completionData.photoUri, type: mime, name: filename });
-      }
-
-      const res = await fetch(apiUrl(`/api/services/${serviceId}`), {
-        method: 'PATCH',
-        body: form,
-      });
+      const res = await sendConclusion(completionData.photo);
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -170,10 +238,15 @@ export default function PedidoScreen() {
       }
 
       setService((prev) => (prev ? { ...prev, status: 'concluido' } : prev));
+      resetCompletionDraft();
 
-      Alert.alert('Sucesso!', 'Serviço concluído com sucesso.', [
+      Alert.alert(
+        'Sucesso!',
+        'Serviço concluído com sucesso.',
+        [
         { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+        ]
+      );
     } catch (error: any) {
       Alert.alert('Erro ao concluir', error?.message || 'Não foi possível concluir o serviço. Tente novamente.');
     } finally {
@@ -197,7 +270,7 @@ export default function PedidoScreen() {
     setIsSending(true);
 
     try {
-      const res = await fetch(apiUrl(`/api/services/${serviceId}`), {
+      const res = await apiFetch(`/api/services/${serviceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -297,7 +370,10 @@ export default function PedidoScreen() {
             <TouchableOpacity
               style={[styles.primaryButton, (isSending || isFinalized) && { opacity: 0.6 }]}
               disabled={isSending || isFinalized}
-              onPress={() => setChecklistVisible(true)}
+              onPress={() => {
+                resetCompletionDraft();
+                setChecklistVisible(true);
+              }}
             >
               {isSending ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="camera" size={20} color="#fff" />}
               <Text style={styles.buttonText}>{isSending ? 'Enviando...' : isFinalized ? 'Serviço Finalizado' : 'Concluir Serviço'}</Text>
@@ -317,20 +393,20 @@ export default function PedidoScreen() {
 
       <ChecklistModal
         visible={isChecklistVisible}
-        onClose={() => setChecklistVisible(false)}
+        onClose={closeCompletionFlow}
         onComplete={handleChecklistComplete}
       />
 
       <PhotoUploadModal
         visible={isPhotoUploadVisible}
-        onClose={() => setPhotoUploadVisible(false)}
+        onClose={closeCompletionFlow}
         onBack={handlePhotoUploadBack}
         onNext={handlePhotoUploadNext}
       />
 
       <SignatureModal
         visible={isSignatureVisible}
-        onClose={() => setSignatureVisible(false)}
+        onClose={closeCompletionFlow}
         onBack={handleSignatureBack}
         onComplete={handleSignatureComplete}
       />

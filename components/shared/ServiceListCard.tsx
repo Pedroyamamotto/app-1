@@ -89,6 +89,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
+    gap: 8,
   },
   topAddressRow: {
     flexDirection: 'row',
@@ -111,6 +112,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     overflow: 'hidden',
     textTransform: 'capitalize',
+    flexShrink: 0,
+    maxWidth: '42%',
   },
   description: {
     fontSize: 18,
@@ -142,6 +145,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
     paddingTop: 10,
+    gap: 10,
+    flexWrap: 'wrap',
   },
   timeContainer: {
     flexDirection: 'row',
@@ -155,6 +160,8 @@ const styles = StyleSheet.create({
   date: {
     fontSize: 14,
     color: '#666',
+    flexShrink: 1,
+    textAlign: 'right',
   },
   actionButton: {
     marginTop: 12,

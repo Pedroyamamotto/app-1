@@ -7,7 +7,7 @@ import ChecklistModal from '../components/ChecklistModal';
 import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 
 const ServiceDetailScreen = () => {
@@ -58,7 +58,7 @@ const ServiceDetailScreen = () => {
 
       setIsLoading(true);
       try {
-        const serviceRes = await fetch(apiUrl(`/api/services/${serviceId}`));
+        const serviceRes = await apiFetch(`/api/services/${serviceId}`);
         const serviceData = await serviceRes.json().catch(() => ({}));
         const servicePayload = serviceData?.service || serviceData?.data || serviceData;
 
@@ -72,7 +72,7 @@ const ServiceDetailScreen = () => {
 
         const clientId = servicePayload?.cliente_id;
         if (clientId) {
-          const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+          const clientRes = await apiFetch(`/api/clientes/${clientId}`);
           const clientData = await clientRes.json().catch(() => ({}));
           setClient(clientData?.cliente || clientData?.data || clientData);
         } else {

@@ -43,9 +43,12 @@ const styles = StyleSheet.create({
   summaryStats: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
   },
   stat: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 90,
     alignItems: 'center',
   },
   statNumber: {

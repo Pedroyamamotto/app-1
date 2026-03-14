@@ -2,10 +2,10 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Formik } from 'formik';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 import { useUser } from '../context/UserContext';
 
 const LoginSchema = Yup.object().shape({
@@ -13,8 +13,24 @@ const LoginSchema = Yup.object().shape({
   password: Yup.string().required('A senha é obrigatória'),
 });
 
+const applyMaskedPasswordInput = (typedValue: string, currentPassword: string) => {
+  const typed = String(typedValue || '');
+  const current = String(currentPassword || '');
+
+  if (typed.length < current.length) {
+    return current.slice(0, typed.length);
+  }
+
+  if (typed.length === current.length) {
+    return current;
+  }
+
+  const appended = typed.slice(current.length).replace(/\*/g, '');
+  return `${current}${appended}`;
+};
+
 export default function LoginScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { setUser } = useUser();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
@@ -23,23 +39,25 @@ export default function LoginScreen() {
   const ADMIN_USER_ID = '69b1c3b9cec65a495eaccef7';
 
   const handleLogin = async (values, { setSubmitting }) => {
+    const normalizedEmail = String(values.email || '').trim().toLowerCase();
+    const trimmedPassword = String(values.password || '').trim();
+
     try {
-      const response = await fetch(apiUrl('/api/users/login'), {
+      const response = await apiFetch('/api/users/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email: values.email,
-          password: values.password,
+          email: normalizedEmail,
+          password: trimmedPassword,
         }),
       });
 
       const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
-        const normalizedEmail = String(values.email || '').trim().toLowerCase();
-        const isKnownAdminCredential = normalizedEmail === ADMIN_EMAIL && values.password === ADMIN_PASSWORD;
+        const isKnownAdminCredential = normalizedEmail === ADMIN_EMAIL && trimmedPassword === ADMIN_PASSWORD;
 
         const token =
           data?.access ||
@@ -72,7 +90,7 @@ export default function LoginScreen() {
 
         setUser({
           name: userData?.nome || userData?.name || userData?.username || 'Usuário',
-          email: userData?.email || values.email,
+          email: userData?.email || normalizedEmail,
           token: token || null,
           userId: resolvedUserId,
           typeUser: resolvedTypeUser,
@@ -97,64 +115,86 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Formik
-        initialValues={{ email: '', password: '' }}
-        validationSchema={LoginSchema}
-        onSubmit={handleLogin}
+      <KeyboardAvoidingView
+        style={styles.keyboardContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
       >
-        {({ handleChange, handleBlur, handleSubmit, values, errors, touched, isSubmitting }) => (
-          <View style={styles.content}>
-            <View style={styles.iconContainer}>
-              <FontAwesome name="lock" size={50} color="#7A1A1A" />
-            </View>
-            <Text style={styles.title}>Login</Text>
-            <Text style={styles.subtitle}>Bem-vindo de volta!</Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Formik
+            initialValues={{ email: '', password: '' }}
+            validationSchema={LoginSchema}
+            onSubmit={handleLogin}
+            validateOnBlur={false}
+            validateOnChange={false}
+          >
+            {({ handleChange, handleBlur, handleSubmit, values, errors, isSubmitting, submitCount, setFieldValue }) => (
+              <View style={styles.content}>
+                <View style={styles.iconContainer}>
+                  <FontAwesome name="lock" size={50} color="#7A1A1A" />
+                </View>
+                <Text style={styles.title}>Login</Text>
+                <Text style={styles.subtitle}>Bem-vindo de volta!</Text>
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>E-mail</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="seu@email.com"
-                keyboardType="email-address"
-                value={values.email}
-                onChangeText={handleChange('email')}
-                onBlur={handleBlur('email')}
-              />
-              {touched.email && errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-            </View>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>E-mail</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="seu@email.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={values.email}
+                    onChangeText={handleChange('email')}
+                    onBlur={handleBlur('email')}
+                  />
+                  {submitCount > 0 && typeof errors.email === 'string' ? <Text style={styles.errorText}>{errors.email}</Text> : null}
+                </View>
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Senha</Text>
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={styles.passwordInput}
-                  placeholder="Sua senha"
-                  secureTextEntry={!isPasswordVisible}
-                  value={values.password}
-                  onChangeText={handleChange('password')}
-                  onBlur={handleBlur('password')}
-                />
-                <TouchableOpacity onPress={() => setIsPasswordVisible(!isPasswordVisible)}>
-                  <FontAwesome name={isPasswordVisible ? 'eye-slash' : 'eye'} size={20} color="#666" />
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Senha</Text>
+                  <View style={styles.passwordContainer}>
+                    <TextInput
+                      style={styles.passwordInput}
+                      placeholder="Sua senha"
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      value={isPasswordVisible ? values.password : '*'.repeat(String(values.password || '').length)}
+                      onChangeText={(text) => {
+                        if (isPasswordVisible) {
+                          handleChange('password')(text);
+                          return;
+                        }
+                        setFieldValue('password', applyMaskedPasswordInput(text, values.password));
+                      }}
+                      onBlur={handleBlur('password')}
+                    />
+                    <TouchableOpacity onPress={() => setIsPasswordVisible(!isPasswordVisible)}>
+                      <FontAwesome name={isPasswordVisible ? 'eye-slash' : 'eye'} size={20} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+                  {submitCount > 0 && typeof errors.password === 'string' ? <Text style={styles.errorText}>{errors.password}</Text> : null}
+                </View>
+
+                <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+                  <Text style={styles.forgotPassword}>Esqueceu a senha?</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.loginButton, isSubmitting && styles.disabledButton]} onPress={() => handleSubmit()} disabled={isSubmitting}>
+                  {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginButtonText}>Entrar</Text>}
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                  <Text style={styles.registerLink}>Não tem uma conta? <Text style={styles.registerLinkHighlight}>Crie agora</Text></Text>
                 </TouchableOpacity>
               </View>
-              {touched.password && errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
-            </View>
-
-            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-              <Text style={styles.forgotPassword}>Esqueceu a senha?</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[styles.loginButton, isSubmitting && styles.disabledButton]} onPress={handleSubmit} disabled={isSubmitting}>
-              {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginButtonText}>Entrar</Text>}
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.registerLink}>Não tem uma conta? <Text style={styles.registerLinkHighlight}>Crie agora</Text></Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </Formik>
+            )}
+          </Formik>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -163,6 +203,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f0f2f5',
+  },
+  keyboardContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
   },
   content: {
@@ -204,6 +250,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 15,
     fontSize: 16,
+    color: '#111827',
     backgroundColor: '#fff',
   },
   passwordContainer: {
@@ -219,6 +266,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 15,
     fontSize: 16,
+    color: '#111827',
   },
   forgotPassword: {
     textAlign: 'right',

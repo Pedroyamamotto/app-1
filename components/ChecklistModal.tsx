@@ -1,12 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 const checklistItemsData = [
   'Instalação da fechadura digital concluída',
   'Configuração e cadastro de senhas/digitais realizado',
   'Teste de abertura com digital/senha/cartão aprovado',
-  'Verificação de bateria e autonomia',
+  'Cobrança feita',
   'Teste de travamento automático funcionando',
   'Orientação ao cliente sobre uso e manutenção',
   'Sincronização com aplicativo (se aplicável)',
@@ -16,10 +16,12 @@ const checklistItemsData = [
 
 const ChecklistModal = ({ visible, onClose, onComplete }) => {
   const [checkedItems, setCheckedItems] = useState(new Set());
+  const [obs, setObs] = useState('');
 
   useEffect(() => {
     if (!visible) {
       setCheckedItems(new Set());
+      setObs('');
     }
   }, [visible]);
 
@@ -33,7 +35,9 @@ const ChecklistModal = ({ visible, onClose, onComplete }) => {
     setCheckedItems(newCheckedItems);
   };
 
-  const canProceed = checkedItems.size >= 4;
+  const trimmedObs = obs.trim();
+  const canProceed = checkedItems.size >= 4 || trimmedObs.length > 0;
+  const needsObs = checkedItems.size < 4;
 
   return (
     <Modal
@@ -49,7 +53,7 @@ const ChecklistModal = ({ visible, onClose, onComplete }) => {
           
           <View style={styles.infoBox}>
             <Feather name="info" size={18} color="#0050b3" />
-            <Text style={styles.infoBoxText}>Marque pelo menos 4 itens para continuar</Text>
+            <Text style={styles.infoBoxText}>Marque pelo menos 4 itens ou informe em Obs por que não concluiu o restante</Text>
           </View>
 
           <ScrollView style={styles.checklistContainer}>
@@ -61,13 +65,26 @@ const ChecklistModal = ({ visible, onClose, onComplete }) => {
                 <Text style={styles.checklistLabel}>{item}</Text>
               </TouchableOpacity>
             ))}
+
+            <View style={styles.obsContainer}>
+              <Text style={styles.obsLabel}>Obs {needsObs ? '*' : '(opcional)'}</Text>
+              <TextInput
+                style={[styles.obsInput, needsObs && !trimmedObs && styles.obsInputRequired]}
+                value={obs}
+                onChangeText={setObs}
+                placeholder="Ex: Cliente não autorizou os itens restantes"
+                placeholderTextColor="#9ca3af"
+                multiline
+                textAlignVertical="top"
+              />
+            </View>
           </ScrollView>
 
           <View style={styles.footer}>
             <Text style={styles.counter}>Itens marcados: {checkedItems.size} / {checklistItemsData.length}</Text>
             <TouchableOpacity 
               style={[styles.button, canProceed ? styles.buttonPrimary : styles.buttonDisabled]}
-              onPress={() => onComplete(Array.from(checkedItems))}
+              onPress={() => onComplete({ items: Array.from(checkedItems), obs: trimmedObs })}
               disabled={!canProceed}
             >
               <Text style={styles.buttonText}>Próximo</Text>
@@ -94,6 +111,22 @@ const styles = StyleSheet.create({
   checkbox: { width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: '#adb5bd', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   checkboxChecked: { backgroundColor: '#7A1A1A', borderColor: '#7A1A1A' },
   checklistLabel: { flex: 1, fontSize: 14, color: '#495057' },
+  obsContainer: { marginTop: 4, marginBottom: 8 },
+  obsLabel: { fontSize: 14, fontWeight: '700', color: '#374151', marginBottom: 8 },
+  obsInput: {
+    minHeight: 90,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#111827',
+    backgroundColor: '#fff',
+  },
+  obsInputRequired: {
+    borderColor: '#ef4444',
+  },
   footer: { borderTopWidth: 1, borderTopColor: '#e9ecef', paddingTop: 15 },
   counter: { textAlign: 'center', fontSize: 14, color: '#666', marginBottom: 15 },
   button: { padding: 15, borderRadius: 8, alignItems: 'center', marginBottom: 10 },

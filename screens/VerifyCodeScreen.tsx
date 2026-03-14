@@ -2,10 +2,10 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Formik } from 'formik';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 
 const VerifyCodeSchema = Yup.object().shape({
   code: Yup.string()
@@ -26,7 +26,7 @@ export default function VerifyCodeScreen() {
   const handleResendCode = async () => {
     setIsResending(true);
     try {
-      const response = await fetch(apiUrl('/api/users/request-password-reset'), {
+      const response = await apiFetch('/api/users/request-password-reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,13 +51,25 @@ export default function VerifyCodeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Formik
-        initialValues={{ code: '' }}
-        validationSchema={VerifyCodeSchema}
-        onSubmit={handleVerifyCode}
+      <KeyboardAvoidingView
+        style={styles.keyboardContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
       >
-        {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
-          <View style={styles.modalView}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Formik
+            initialValues={{ code: '' }}
+            validationSchema={VerifyCodeSchema}
+            onSubmit={handleVerifyCode}
+            validateOnBlur={false}
+            validateOnChange={false}
+          >
+            {({ handleChange, handleBlur, handleSubmit, values, errors, submitCount }) => (
+              <View style={styles.modalView}>
             <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
               <FontAwesome name="close" size={24} color="black" />
             </TouchableOpacity>
@@ -78,7 +90,7 @@ export default function VerifyCodeScreen() {
                 onChangeText={handleChange('code')}
                 onBlur={handleBlur('code')}
               />
-              {touched.code && errors.code && <Text style={styles.errorText}>{errors.code}</Text>}
+              {submitCount > 0 && typeof errors.code === 'string' ? <Text style={styles.errorText}>{errors.code}</Text> : null}
             </View>
             <TouchableOpacity style={styles.sendButton} onPress={handleSubmit}>
               <Text style={styles.sendButtonText}>Verificar código</Text>
@@ -86,9 +98,11 @@ export default function VerifyCodeScreen() {
             <TouchableOpacity onPress={handleResendCode} disabled={isResending}>
               {isResending ? <ActivityIndicator color="#7A1A1A" /> : <Text style={styles.backLink}>Reenviar código</Text>}
             </TouchableOpacity>
-          </View>
-        )}
-      </Formik>
+              </View>
+            )}
+          </Formik>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -96,9 +110,15 @@ export default function VerifyCodeScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
         backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    keyboardContainer: {
+      flex: 1,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     modalView: {
         margin: 20,

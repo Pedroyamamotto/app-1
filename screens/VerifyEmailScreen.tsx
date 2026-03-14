@@ -2,10 +2,10 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Formik } from 'formik';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 
 const VerifyEmailSchema = Yup.object().shape({
   code: Yup.string()
@@ -21,7 +21,7 @@ export default function VerifyEmailScreen() {
 
   const handleVerifyCode = async (values, { setSubmitting }) => {
     try {
-      const response = await fetch(apiUrl('/api/users/verify'), {
+      const response = await apiFetch('/api/users/verify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -56,7 +56,7 @@ export default function VerifyEmailScreen() {
   const handleResendCode = async () => {
     setIsResending(true);
     try {
-      const response = await fetch(apiUrl('/api/users/resend-verification-code'), {
+      const response = await apiFetch('/api/users/resend-verification-code', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -87,13 +87,25 @@ export default function VerifyEmailScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Formik
-        initialValues={{ code: '' }}
-        validationSchema={VerifyEmailSchema}
-        onSubmit={handleVerifyCode}
+      <KeyboardAvoidingView
+        style={styles.keyboardContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
       >
-        {({ handleChange, handleBlur, handleSubmit, values, errors, touched, isSubmitting }) => (
-          <View style={styles.modalView}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Formik
+            initialValues={{ code: '' }}
+            validationSchema={VerifyEmailSchema}
+            onSubmit={handleVerifyCode}
+            validateOnBlur={false}
+            validateOnChange={false}
+          >
+            {({ handleChange, handleBlur, handleSubmit, values, errors, isSubmitting, submitCount }) => (
+              <View style={styles.modalView}>
             <TouchableOpacity style={styles.closeButton} onPress={handleGoBack}>
               <FontAwesome name="close" size={24} color="black" />
             </TouchableOpacity>
@@ -114,7 +126,7 @@ export default function VerifyEmailScreen() {
                 onChangeText={handleChange('code')}
                 onBlur={handleBlur('code')}
               />
-              {touched.code && errors.code && <Text style={styles.errorText}>{errors.code}</Text>}
+              {submitCount > 0 && typeof errors.code === 'string' ? <Text style={styles.errorText}>{errors.code}</Text> : null}
             </View>
             <TouchableOpacity style={[styles.sendButton, isSubmitting && styles.disabledButton]} onPress={handleSubmit} disabled={isSubmitting}>
               {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendButtonText}>Verificar código</Text>}
@@ -122,9 +134,11 @@ export default function VerifyEmailScreen() {
             <TouchableOpacity onPress={handleResendCode} disabled={isResending}>
               {isResending ? <ActivityIndicator color="#7A1A1A" /> : <Text style={styles.backLink}>Reenviar código</Text>}
             </TouchableOpacity>
-          </View>
-        )}
-      </Formik>
+              </View>
+            )}
+          </Formik>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -132,9 +146,15 @@ export default function VerifyEmailScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
         backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    keyboardContainer: {
+      flex: 1,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     modalView: {
         margin: 20,

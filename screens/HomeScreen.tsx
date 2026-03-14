@@ -1,12 +1,13 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import React, { useCallback, useState } from 'react';
-import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader from '../components/shared/AppHeader';
 import ServiceListCard from '../components/shared/ServiceListCard';
 import SummaryCard from '../components/shared/SummaryCard';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 import { useUser } from '../context/UserContext';
 
@@ -18,6 +19,8 @@ const HomeScreen = () => {
   const [upcomingServices, setUpcomingServices] = useState([]);
   const [clientsById, setClientsById] = useState<Record<string, any>>({});
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const previousServiceIdsRef = useRef<Set<string>>(new Set());
+  const hasRequestedNotificationsRef = useRef(false);
 
   const tecnicoId = user?.userId;
 
@@ -30,6 +33,26 @@ const HomeScreen = () => {
   };
 
   const normalizeStatus = (status) => String(status || '').toLowerCase();
+
+  const isAssignedToLoggedTechnician = (service) => {
+    const loggedId = String(tecnicoId || '').trim();
+    if (!loggedId) return false;
+
+    const candidates = [
+      service?.tecnico_id,
+      service?.tecnicoId,
+      service?.tecnico?.id,
+      service?.tecnico?._id,
+      service?.tecnico_user_id,
+      service?.tecnicoUserId,
+      service?.usuario_tecnico_id,
+      service?.usuarioTecnicoId,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    return candidates.includes(loggedId);
+  };
 
   const getStatusStyle = (status) => {
     const normalized = normalizeStatus(status);
@@ -86,21 +109,79 @@ const HomeScreen = () => {
 
   const isSame = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+  const getServiceStableId = (service, index = 0) =>
+    String(service?._id || service?.id || service?.pedido_id || service?.numero_pedido || index);
+
+  const requestNotificationPermission = useCallback(async () => {
+    if (Platform.OS === 'web' || hasRequestedNotificationsRef.current) return;
+    hasRequestedNotificationsRef.current = true;
+
+    try {
+      const current = await Notifications.getPermissionsAsync();
+      if (current.granted) return;
+
+      const requested = await Notifications.requestPermissionsAsync();
+      if (!requested.granted && __DEV__) {
+        console.warn('Permissao de notificacao negada.');
+      }
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('Nao foi possivel solicitar permissao de notificacao', error);
+      }
+    }
+  }, []);
+
+  const notifyNewAssignedService = useCallback(async (service) => {
+    if (Platform.OS === 'web') return;
+
+    const numeroPedido = service?.numero_pedido || service?.pedido_id || service?._id || service?.id || 'novo servico';
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Novo servico atribuido',
+        body: `Pedido ${numeroPedido} foi atribuido para voce.`,
+        sound: true,
+      },
+      trigger: null,
+    });
+  }, []);
+
+  useEffect(() => {
+    requestNotificationPermission();
+  }, [requestNotificationPermission]);
+
   const loadHome = useCallback(async () => {
     if (!hasLoadedOnce) {
       setIsLoading(true);
     }
 
     try {
-      const query = tecnicoId ? `?limit=20&tecnicoId=${tecnicoId}` : '?limit=20';
-      const servicesRes = await fetch(apiUrl(`/api/services${query}`));
+      const query = tecnicoId ? `?limit=200&tecnicoId=${encodeURIComponent(tecnicoId)}&tecnico_id=${encodeURIComponent(tecnicoId)}` : '?limit=200';
+      const servicesRes = await apiFetch(`/api/services${query}`);
       const servicesData = await servicesRes.json().catch(() => ({}));
       const services = normalizeServices(servicesData);
-      const activeServices = services.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status)));
+      const tecnicoServices = services.filter((service) => isAssignedToLoggedTechnician(service));
+      const activeServices = tecnicoServices.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status)));
 
-      const concluido = services.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
-      const naoConcluida = services.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
-      const emEspera = services.filter((s) => ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length;
+      const currentServiceIds = new Set<string>(activeServices.map((service, index) => getServiceStableId(service, index)));
+      if (hasLoadedOnce && previousServiceIdsRef.current.size > 0) {
+        const hasNotificationPermission = Platform.OS !== 'web'
+          ? (await Notifications.getPermissionsAsync()).granted
+          : false;
+
+        if (hasNotificationPermission) {
+          for (const [index, service] of activeServices.entries()) {
+            const id = getServiceStableId(service, index);
+            if (!previousServiceIdsRef.current.has(id)) {
+              await notifyNewAssignedService(service);
+            }
+          }
+        }
+      }
+      previousServiceIdsRef.current = currentServiceIds;
+
+      const concluido = tecnicoServices.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
+      const naoConcluida = tecnicoServices.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+      const emEspera = tecnicoServices.filter((s) => ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length;
       const nextSummary = { concluido, naoConcluida, emEspera };
 
       setSummary((prev) => (isSame(prev, nextSummary) ? prev : nextSummary));
@@ -110,7 +191,7 @@ const HomeScreen = () => {
       if (uniqueClientIds.length) {
         const clientResults = await Promise.allSettled(
           uniqueClientIds.map(async (clientId) => {
-            const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+            const clientRes = await apiFetch(`/api/clientes/${clientId}`);
             const clientData = await clientRes.json().catch(() => ({}));
             return { clientId, clientData };
           })

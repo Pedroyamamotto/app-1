@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader from '../components/shared/AppHeader';
 import ServiceListCard from '../components/shared/ServiceListCard';
 import SummaryCard from '../components/shared/SummaryCard';
-import { apiUrl } from '../constants/api';
+import { apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 import { useUser } from '../context/UserContext';
 
@@ -29,6 +29,26 @@ const HistoricoScreen = () => {
   };
 
   const normalizeStatus = (status) => String(status || '').toLowerCase();
+
+  const isAssignedToLoggedTechnician = (service) => {
+    const loggedId = String(tecnicoId || '').trim();
+    if (!loggedId) return false;
+
+    const candidates = [
+      service?.tecnico_id,
+      service?.tecnicoId,
+      service?.tecnico?.id,
+      service?.tecnico?._id,
+      service?.tecnico_user_id,
+      service?.tecnicoUserId,
+      service?.usuario_tecnico_id,
+      service?.usuarioTecnicoId,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    return candidates.includes(loggedId);
+  };
 
   const getStatusStyle = (status) => {
     const normalized = normalizeStatus(status);
@@ -87,12 +107,13 @@ const HistoricoScreen = () => {
     }
 
     try {
-      const query = tecnicoId ? `?limit=200&tecnicoId=${tecnicoId}` : '?limit=200';
-      const servicesRes = await fetch(apiUrl(`/api/services${query}`));
+      const query = tecnicoId ? `?limit=200&tecnicoId=${encodeURIComponent(tecnicoId)}&tecnico_id=${encodeURIComponent(tecnicoId)}` : '?limit=200';
+      const servicesRes = await apiFetch(`/api/services${query}`);
       const servicesPayload = await servicesRes.json().catch(() => ({}));
       const services = normalizeServices(servicesPayload);
+      const tecnicoServices = services.filter((service) => isAssignedToLoggedTechnician(service));
 
-      const finishedServices = services.filter((service) => {
+      const finishedServices = tecnicoServices.filter((service) => {
         const status = normalizeStatus(service?.status);
         return ['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(status);
       });
@@ -104,7 +125,7 @@ const HistoricoScreen = () => {
       if (uniqueClientIds.length) {
         const clientResults = await Promise.allSettled(
           uniqueClientIds.map(async (clientId) => {
-            const clientRes = await fetch(apiUrl(`/api/clientes/${clientId}`));
+            const clientRes = await apiFetch(`/api/clientes/${clientId}`);
             const clientPayload = await clientRes.json().catch(() => ({}));
             return { clientId, clientPayload };
           })
