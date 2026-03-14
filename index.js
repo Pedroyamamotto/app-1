@@ -3,7 +3,9 @@ import Constants from 'expo-constants';
 import { UserProvider } from './context/UserContext';
 import AppNavigator from './navigation/AppNavigator';
 
-const isExpoGo = Constants.executionEnvironment === 'storeClient';
+const isExpoGo =
+  Constants.appOwnership === 'expo' ||
+  Constants.executionEnvironment === 'storeClient';
 
 if (!isExpoGo) {
   const Notifications = require('expo-notifications');

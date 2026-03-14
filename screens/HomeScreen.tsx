@@ -22,7 +22,9 @@ const HomeScreen = () => {
   const previousServiceIdsRef = useRef<Set<string>>(new Set());
   const hasRequestedNotificationsRef = useRef(false);
 
-  const isExpoGo = Constants.executionEnvironment === 'storeClient';
+  const isExpoGo =
+    Constants.appOwnership === 'expo' ||
+    Constants.executionEnvironment === 'storeClient';
   const Notifications = !isExpoGo && Platform.OS !== 'web'
     ? (require('expo-notifications') as typeof import('expo-notifications'))
     : null;
