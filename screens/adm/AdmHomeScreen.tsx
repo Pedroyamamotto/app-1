@@ -1,15 +1,23 @@
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { assignAdminService, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, type AdminServiceData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+import PhotoUploadModal from '../../components/PhotoUploadModal';
+import { assignAdminService, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, uploadAdminServiceContextPhoto, type AdminServiceData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
+import { useUser } from '../../context/UserContext';
 
 type AdminService = AdminServiceData;
+
+type UploadedPhoto = {
+  uri: string;
+  mimeType?: string;
+  fileName?: string;
+};
 
 type FilterState = {
   status: string;
@@ -62,6 +70,22 @@ const normalizeSearchValue = (value: unknown) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+
+const normalizeDigits = (value: unknown) => String(value || '').replace(/\D/g, '');
+
+const formatPedidoLabel = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'PV--';
+  if (raw.startsWith('PV-')) return raw;
+  if (raw.startsWith('BLING-')) return raw.replace(/^BLING-/, 'PV-');
+  return `PV-${raw}`;
+};
+
+const formatOrdemServicoLabel = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return `OS-${raw}`;
+};
 
 const DEFAULT_FILTERS: FilterState = {
   status: 'Todos os Status',
@@ -202,7 +226,9 @@ function getTodayCalendarDate(): string {
   return `${year}-${month}-${day}`;
 }
 
-const AdmHomeScreen = () => {
+const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
+  const { user } = useUser() as unknown as { user: { typeUser?: string } | null };
+  const canUploadContextPhoto = String(user?.typeUser || '').toLowerCase() === 'admin';
   const todayCalendarDate = getTodayCalendarDate();
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
@@ -223,6 +249,88 @@ const AdmHomeScreen = () => {
   const [showAtribuirTime, setShowAtribuirTime] = useState(false);
   const [tecnicosApi, setTecnicosApi] = useState<AdminTecnicoUser[]>([]);
 
+  const [adicionarImagemVisible, setAdicionarImagemVisible] = useState(false);
+  const [adicionarImagemTarget, setAdicionarImagemTarget] = useState<AdminService | null>(null);
+  const [adicionarImagemPhotos, setAdicionarImagemPhotos] = useState<UploadedPhoto[]>([]);
+  const [isAdicionarPickerVisible, setIsAdicionarPickerVisible] = useState(false);
+  const [isAdicionarSending, setIsAdicionarSending] = useState(false);
+
+  const mergeAdicionarImagemPhotos = (incoming: UploadedPhoto[]) => {
+    setAdicionarImagemPhotos((prev) => [...prev, ...incoming]);
+  };
+
+  const inferMimeType = (nameOrUri: string) => {
+    const lower = String(nameOrUri || '').toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+    return 'image/jpeg';
+  };
+
+  const buildPhotoFileName = (sourcePhoto: UploadedPhoto, mimeType: string) => {
+    const fromSource = String(sourcePhoto.fileName || sourcePhoto.uri.split('/').pop() || '').trim();
+    if (fromSource && /\.[a-z0-9]+$/i.test(fromSource)) return fromSource;
+    const extByMime: Record<string, string> = { 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif', 'image/jpeg': 'jpg' };
+    return `foto.${extByMime[mimeType] || 'jpg'}`;
+  };
+
+  const openAdicionarImagemModal = (item: AdminService) => {
+    setAdicionarImagemTarget(item);
+    setAdicionarImagemPhotos([]);
+    setIsAdicionarPickerVisible(false);
+    setAdicionarImagemVisible(true);
+  };
+
+  const closeAdicionarImagemModal = () => {
+    setAdicionarImagemVisible(false);
+    setAdicionarImagemTarget(null);
+    setAdicionarImagemPhotos([]);
+  };
+
+  const handleAdicionarImagemSave = async () => {
+    if (!adicionarImagemTarget || adicionarImagemPhotos.length === 0) return;
+    setIsAdicionarSending(true);
+    try {
+      let successCount = 0;
+      const failedPhotos: UploadedPhoto[] = [];
+
+      for (const photo of adicionarImagemPhotos) {
+        try {
+          const mimeType = photo.mimeType || inferMimeType(photo.fileName || photo.uri);
+          const fileName = buildPhotoFileName(photo, mimeType);
+          await uploadAdminServiceContextPhoto(adicionarImagemTarget.id, {
+            uri: photo.uri,
+            mimeType,
+            fileName,
+          });
+          successCount += 1;
+        } catch {
+          failedPhotos.push(photo);
+        }
+      }
+
+      if (successCount > 0) {
+        await loadAdminServices();
+      }
+
+      if (failedPhotos.length === 0) {
+        closeAdicionarImagemModal();
+        Alert.alert('Sucesso', `${successCount} foto(s) enviada(s) com sucesso.`);
+      } else {
+        setAdicionarImagemPhotos(failedPhotos);
+        Alert.alert(
+          'Envio parcial',
+          `${successCount} foto(s) enviada(s) e ${failedPhotos.length} falharam. Tente enviar novamente as restantes.`
+        );
+      }
+    } catch (error: any) {
+      Alert.alert('Erro ao salvar', error?.message || 'Nao foi possivel salvar a imagem.');
+    } finally {
+      setIsAdicionarSending(false);
+    }
+  };
+
   const openAtribuirModal = (item: AdminService) => {
     setAtribuirTarget(item);
     setAtribuirForm({ tecnicoId: item.tecnicoId || '', data: '', hora: '' });
@@ -231,6 +339,8 @@ const AdmHomeScreen = () => {
     setShowAtribuirTime(false);
     setAtribuirVisible(true);
   };
+
+
 
   const confirmAtribuir = async () => {
     if (!atribuirTarget || !atribuirForm.tecnicoId || !atribuirForm.data.trim() || !atribuirForm.hora.trim()) {
@@ -454,6 +564,7 @@ const AdmHomeScreen = () => {
   const filteredServices = useMemo(() => {
     const statusCode = statusFilterToCode[appliedFilters.status] ?? null;
     const normalizedQuery = normalizeSearchValue(searchQuery);
+    const queryDigits = normalizeDigits(searchQuery);
 
     return services.filter((service) => {
       const matchesStatus = statusCode ? service.status === statusCode : true;
@@ -462,18 +573,29 @@ const AdmHomeScreen = () => {
           ? true
           : service.tecnico === appliedFilters.tecnico;
       const matchesPeriodoFilter = matchesPeriodo(service.data, appliedFilters.periodo);
+      const ordemDeServico = String(service.numeroOrdemServico || '');
+      const numeroPedido = String(service.numeroPedido || '');
+
+      const searchableValues = [
+        numeroPedido,
+        ordemDeServico,
+        service.cliente,
+        service.telefone,
+        service.tecnico,
+        service.endereco,
+        service.descricao,
+        service.data,
+        service.hora,
+      ];
+
+      const searchableDigits = [numeroPedido, ordemDeServico]
+        .map((value) => normalizeDigits(value))
+        .filter(Boolean);
+
       const matchesSearch =
         !normalizedQuery ||
-        [
-          service.numeroPedido,
-          service.cliente,
-          service.telefone,
-          service.tecnico,
-          service.endereco,
-          service.descricao,
-          service.data,
-          service.hora,
-        ].some((value) => normalizeSearchValue(value).includes(normalizedQuery));
+        searchableValues.some((value) => normalizeSearchValue(value).includes(normalizedQuery)) ||
+        Boolean(queryDigits && searchableDigits.some((value) => value.includes(queryDigits)));
 
       return matchesStatus && matchesTecnico && matchesPeriodoFilter && matchesSearch;
     });
@@ -502,7 +624,7 @@ const AdmHomeScreen = () => {
           <Feather name="search" size={22} color="#94a3b8" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Buscar por ID, nome, telefone..."
+            placeholder="Buscar por ID, ordem de serviço, nome, telefone..."
             placeholderTextColor="#94a3b8"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -552,13 +674,20 @@ const AdmHomeScreen = () => {
           <TouchableOpacity
             key={item.id}
             style={styles.orderCard}
-            activeOpacity={item.status === 'concluido' ? 0.8 : 1}
+            activeOpacity={item.status === 'concluido' || item.status === 'atribuido' ? 0.8 : 1}
             onPress={() => {
-            if (item.status === 'concluido') openDetailModal(item);
+            if (item.status === 'concluido' || item.status === 'atribuido') openDetailModal(item);
           }}
           >
             <View style={styles.orderTopRow}>
-              <Text style={styles.orderId}>{item.numeroPedido}</Text>
+              <View style={styles.orderIdentityRow}>
+                <Text style={styles.orderId}>{formatPedidoLabel(item.numeroPedido)}</Text>
+                {formatOrdemServicoLabel(item.numeroOrdemServico) ? (
+                  <View style={styles.osBadge}>
+                    <Text style={styles.osBadgeText}>{formatOrdemServicoLabel(item.numeroOrdemServico)}</Text>
+                  </View>
+                ) : null}
+              </View>
               <Text style={[styles.orderBadge, { backgroundColor: statusBadgeColorByCode[item.status] }]}>
                 {statusLabelByCode[item.status]}
               </Text>
@@ -590,7 +719,13 @@ const AdmHomeScreen = () => {
               <Text style={styles.descriptionText}>{formatLockDisplayName(item.descricao)}</Text>
             </View>
 
-            {item.status === 'aguardando' || item.status === 'atribuido' ? (
+            {item.status === 'aguardando' && canUploadContextPhoto ? (
+              <TouchableOpacity style={styles.imageButton} activeOpacity={0.9} onPress={() => openAdicionarImagemModal(item)}>
+                <Text style={styles.imageButtonText}>Adicionar Imagem</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {item.status === 'aguardando' ? (
               <TouchableOpacity style={styles.assignButton} activeOpacity={0.9} onPress={() => openAtribuirModal(item)}>
                 <Text style={styles.assignButtonText}>Atribuir Tecnico</Text>
               </TouchableOpacity>
@@ -602,7 +737,7 @@ const AdmHomeScreen = () => {
                 onPress={() => openNaoRealizadoModal(item)}
               >
                 <Feather name="alert-circle" size={16} color="#6b7280" />
-                <Text style={styles.motivoButtonText}>Ver Motivo</Text>
+                <Text style={styles.motivoButtonText}>Ver/Editar Motivo</Text>
               </TouchableOpacity>
             ) : null}
           </TouchableOpacity>
@@ -1087,6 +1222,34 @@ const AdmHomeScreen = () => {
                 </View>
               </View>
 
+              <View style={styles.detailSectionHeader}>
+                <Feather name="camera" size={20} color="#7A1A1A" />
+                <Text style={styles.detailSectionTitle}>Foto de Contexto</Text>
+              </View>
+
+              {(atribuirTarget.fotosContextoUris?.length || 0) > 0 ? (
+                <View style={styles.contextPhotosList}>
+                  {(atribuirTarget.fotosContextoUris || []).map((uri, index) => (
+                    <Image
+                      key={`${uri}-${index}`}
+                      source={{ uri }}
+                      style={styles.detailPhoto}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </View>
+              ) : atribuirTarget.fotoUri ? (
+                <Image
+                  source={{ uri: atribuirTarget.fotoUri }}
+                  style={styles.detailPhoto}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.signatureBox}>
+                  <Text style={styles.signaturePlaceholder}>Nenhuma foto de contexto enviada</Text>
+                </View>
+              )}
+
               {/* Tecnico */}
               <Text style={styles.atribuirFieldLabel}>Tecnico Responsavel *</Text>
               <TouchableOpacity
@@ -1244,6 +1407,141 @@ const AdmHomeScreen = () => {
 
               <View style={{ height: 16 }} />
             </ScrollView>
+          </SafeAreaView>
+        ) : null}
+      </Modal>
+
+      {/* Modal Adicionar Imagem */}
+      <Modal
+        visible={adicionarImagemVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={closeAdicionarImagemModal}
+      >
+        {adicionarImagemTarget ? (
+          <SafeAreaView style={styles.detailContainer}>
+            <StatusBar barStyle="light-content" />
+
+            <View style={styles.detailHeader}>
+              <TouchableOpacity
+                style={styles.detailBackButton}
+                activeOpacity={0.8}
+                onPress={closeAdicionarImagemModal}
+              >
+                <Feather name="chevron-left" size={22} color="#fff" />
+              </TouchableOpacity>
+              <View style={styles.detailHeaderInfo}>
+                <View style={styles.detailHeaderIcon}>
+                  <Feather name="camera" size={22} color="#fff" />
+                </View>
+                <View>
+                  <Text style={styles.detailHeaderTitle}>Adicionar Imagem</Text>
+                  <Text style={styles.detailHeaderSub}>
+                    {formatPedidoLabel(adicionarImagemTarget.numeroPedido)} - {adicionarImagemTarget.cliente}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.detailScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.detailCard}>
+                <Text style={styles.detailCardSectionTitle}>Informacoes do Cliente:</Text>
+                <View style={styles.detailInfoRow}>
+                  <Feather name="user" size={16} color="#64748b" />
+                  <Text style={styles.detailInfoText}>{adicionarImagemTarget.cliente}</Text>
+                </View>
+                <View style={styles.detailInfoRow}>
+                  <Feather name="phone" size={16} color="#64748b" />
+                  <Text style={styles.detailInfoText}>{adicionarImagemTarget.telefone || 'Telefone nao informado'}</Text>
+                </View>
+                <View style={styles.detailInfoRow}>
+                  <Feather name="map-pin" size={16} color="#64748b" />
+                  <Text style={styles.detailInfoText}>{adicionarImagemTarget.endereco}</Text>
+                </View>
+                <View style={styles.detailServiceBox}>
+                  <Text style={styles.detailServiceLabel}>Servico:</Text>
+                  <Text style={styles.detailServiceDesc}>{formatLockDisplayName(adicionarImagemTarget.descricao)}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.atribuirFieldLabel}>Foto da Porta do Cliente (Opcional)</Text>
+
+              <TouchableOpacity
+                style={styles.fotoPickerRow}
+                activeOpacity={0.85}
+                disabled={isAdicionarSending}
+                onPress={() => setIsAdicionarPickerVisible(true)}
+              >
+                <View style={styles.fotoPickerButton}>
+                  <Text style={styles.fotoPickerButtonText}>Escolher arquivo</Text>
+                </View>
+                <Text style={styles.fotoPickerFileName} numberOfLines={1}>
+                  {adicionarImagemPhotos.length > 0
+                    ? `${adicionarImagemPhotos.length} arquivo(s) escolhido(s)`
+                    : 'Nenhum ...escolhido'}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={styles.fotoPickerHelperText}>
+                Adicione uma ou mais fotos da porta onde sera instalada a fechadura
+              </Text>
+
+              {adicionarImagemPhotos[0]?.uri ? (
+                <Image
+                  source={{ uri: adicionarImagemPhotos[0].uri }}
+                  style={styles.fotoPreview}
+                  resizeMode="cover"
+                />
+              ) : null}
+
+              {adicionarImagemPhotos.length > 1 ? (
+                <Text style={styles.fotoPickerHelperText}>+{adicionarImagemPhotos.length - 1} foto(s) pronta(s) para envio</Text>
+              ) : null}
+
+              <View style={{ height: 24 }} />
+
+              <TouchableOpacity
+                style={[styles.atribuirConfirmButton, (adicionarImagemPhotos.length === 0 || isAdicionarSending) && { opacity: 0.55 }]}
+                activeOpacity={0.9}
+                disabled={adicionarImagemPhotos.length === 0 || isAdicionarSending}
+                onPress={handleAdicionarImagemSave}
+              >
+                {isAdicionarSending
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Feather name="check-circle" size={18} color="#fff" />}
+                <Text style={styles.atribuirConfirmButtonText}>
+                  {isAdicionarSending ? 'Enviando...' : 'Enviar Imagens'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.atribuirCancelButton, { marginTop: 10 }]}
+                activeOpacity={0.9}
+                onPress={closeAdicionarImagemModal}
+              >
+                <Text style={styles.atribuirCancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <View style={{ height: 16 }} />
+            </ScrollView>
+
+            <PhotoUploadModal
+              visible={isAdicionarPickerVisible}
+              onClose={() => setIsAdicionarPickerVisible(false)}
+              onBack={() => setIsAdicionarPickerVisible(false)}
+              allowMultiple
+              onNext={(p: UploadedPhoto) => {
+                mergeAdicionarImagemPhotos([p]);
+                setIsAdicionarPickerVisible(false);
+              }}
+              onNextMany={(photos: UploadedPhoto[]) => {
+                mergeAdicionarImagemPhotos(photos);
+                setIsAdicionarPickerVisible(false);
+              }}
+            />
           </SafeAreaView>
         ) : null}
       </Modal>
@@ -1524,6 +1822,29 @@ const AdmHomeScreen = () => {
                 </View>
               )}
 
+              {/* Fotos de Contexto */}
+              <View style={styles.detailSectionHeader}>
+                <Feather name="camera" size={20} color="#7A1A1A" />
+                <Text style={styles.detailSectionTitle}>Foto de Contexto</Text>
+              </View>
+
+              {(selectedService.fotosContextoUris?.length || 0) > 0 ? (
+                <View style={styles.contextPhotosList}>
+                  {(selectedService.fotosContextoUris || []).map((uri, index) => (
+                    <Image
+                      key={`${uri}-${index}`}
+                      source={{ uri }}
+                      style={styles.detailPhoto}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.signatureBox}>
+                  <Text style={styles.signaturePlaceholder}>Nenhuma foto de contexto enviada</Text>
+                </View>
+              )}
+
               {/* Foto */}
               <View style={styles.detailSectionHeader}>
                 <Feather name="check-circle" size={20} color="#7A1A1A" />
@@ -1731,14 +2052,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   orderCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: '#fbfbfb',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#d9dfe7',
-    borderLeftWidth: 4,
-    borderLeftColor: '#d18a00',
-    padding: 12,
-    marginBottom: 12,
+    borderColor: '#d7dbe0',
+    borderLeftWidth: 3,
+    borderLeftColor: '#d69f2f',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   orderTopRow: {
     flexDirection: 'row',
@@ -1746,19 +2073,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  orderIdentityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   orderId: {
-    color: '#6b1f1f',
+    color: '#5b1111',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
+    backgroundColor: '#f8e9de',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 24,
+    borderRadius: 8,
+    textAlignVertical: 'center',
+  },
+  osBadge: {
+    backgroundColor: '#fff3c4',
+    borderWidth: 1,
+    borderColor: '#f3d36b',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 24,
+    justifyContent: 'center',
+  },
+  osBadgeText: {
+    color: '#8a5a00',
+    fontSize: 13,
+    fontWeight: '700',
   },
   orderBadge: {
-    backgroundColor: '#f15a00',
+    backgroundColor: '#c48a00',
     color: '#fff',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 999,
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 12.5,
   },
   clientName: {
     color: '#0f172a',
@@ -1778,27 +2131,39 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   descriptionBox: {
-    backgroundColor: '#eef2f6',
+    backgroundColor: '#f0f1f4',
     borderRadius: 10,
-    padding: 8,
-    marginTop: 6,
+    padding: 10,
+    marginTop: 8,
   },
   descriptionText: {
     color: '#1e293b',
     fontSize: 27 / 1.5,
     lineHeight: 22,
   },
-  assignButton: {
-    marginTop: 8,
-    backgroundColor: '#f15a00',
+  imageButton: {
+    marginTop: 12,
+    backgroundColor: '#7a1818',
     borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  imageButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 22 / 1.5,
+  },
+  assignButton: {
+    marginTop: 10,
+    backgroundColor: '#1f2f49',
+    borderRadius: 10,
+    paddingVertical: 11,
     alignItems: 'center',
   },
   assignButtonText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 15,
+    fontSize: 22 / 1.5,
   },
   emptyCard: {
     backgroundColor: '#fff',
@@ -2133,6 +2498,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     flex: 1,
     lineHeight: 20,
+  },
   retryLoadButton: {
     marginTop: 12,
     backgroundColor: '#7A1A1A',
@@ -2145,7 +2511,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 14,
-  },
   },
   detailTechRow: {
     flexDirection: 'row',
@@ -2194,6 +2559,9 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 17,
     fontWeight: '700',
+  },
+  contextPhotosList: {
+    marginBottom: 18,
   },
   checklistItem: {
     flexDirection: 'row',
@@ -2510,6 +2878,52 @@ const styles = StyleSheet.create({
     color: '#7A1A1A',
     fontSize: 15,
     fontWeight: '600',
+  },
+  fotoPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  fotoPickerButton: {
+    backgroundColor: '#7A1A1A',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopLeftRadius: 9,
+    borderBottomLeftRadius: 9,
+  },
+  fotoPickerButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  fotoPickerFileName: {
+    flex: 1,
+    paddingHorizontal: 12,
+    color: '#374151',
+    fontSize: 14,
+  },
+  fotoPickerHelperText: {
+    color: '#64748b',
+    fontSize: 12,
+    marginBottom: 14,
+  },
+  fotoPreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 6,
+  },
+  cardPhotoThumb: {
+    width: '100%',
+    height: 160,
+    borderRadius: 10,
+    marginTop: 10,
+    backgroundColor: '#e5e7eb',
   },
 });
 

@@ -3,14 +3,19 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useUser } from '../../../context/UserContext';
 
 export default function AdminHeader() {
-  const { logout, user } = useUser() as unknown as { logout: () => void; user: { name?: string } | null };
+  const { logout, user } = useUser() as unknown as {
+    logout: () => void;
+    user: { typeUser?: string } | null;
+  };
+  const role = String(user?.typeUser || '').toLowerCase();
+  const cargo = role === 'gerente' ? 'gerente' : 'administrador';
 
   return (
     <View style={styles.header}>
       <View style={styles.brandBlock}>
         <Text style={styles.headerTitle}>ServiYama</Text>
         <Text style={styles.headerSubtitle}>Gestao de Servicos</Text>
-        <Text style={styles.headerSubtitle}>Gerente: {user?.name ?? 'Admin'}</Text>
+        <Text style={styles.headerSubtitle}>Cargo: {cargo}</Text>
       </View>
 
       <TouchableOpacity style={styles.logoutButton} onPress={logout} activeOpacity={0.9}>

@@ -4,21 +4,40 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
-import { fetchAdminDashboardFromApi, type AdminDashboardData } from '../../components/shared/admin/adminApi';
+import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, type AdminDashboardData, type AdminServiceData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+
+const normalizeId = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const objectIdMatch = raw.match(/ObjectId\(['\"]?([a-fA-F0-9]{24})['\"]?\)/i);
+  return (objectIdMatch ? objectIdMatch[1] : raw).toLowerCase();
+};
+
+const normalizeName = (value: unknown) => String(value || '').trim().toLowerCase();
 
 export default function AdmRelatoriosScreen() {
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
+  const [tecnicos, setTecnicos] = useState<AdminTecnicoUser[]>([]);
+  const [services, setServices] = useState<AdminServiceData[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadRelatorios = useCallback(async () => {
     try {
-      const nextDashboard = await fetchAdminDashboardFromApi();
+      const [nextDashboard, nextTecnicos, nextServices] = await Promise.all([
+        fetchAdminDashboardFromApi(),
+        fetchAdminTecnicosFromApi(),
+        fetchAdminServicesFromApi(),
+      ]);
       setDashboard(nextDashboard);
+      setTecnicos(nextTecnicos);
+      setServices(nextServices);
       setLoadError(null);
     } catch (error) {
       console.warn('Erro ao carregar relatorios admin:', error);
       setLoadError(error instanceof Error ? error.message : 'Nao foi possivel carregar os relatorios da API admin.');
       setDashboard(null);
+      setTecnicos([]);
+      setServices([]);
     }
   }, []);
 
@@ -54,13 +73,78 @@ export default function AdmRelatoriosScreen() {
     ];
   }, [resumo]);
 
-  const desempenho = useMemo(() => (
-    (dashboard?.desempenho_tecnicos || []).map((tecnico) => ({
-      nome: tecnico.nome,
+  const tecnicosById = useMemo(() => {
+    const map = new Map<string, string>();
+    tecnicos.forEach((tecnico) => {
+      const id = normalizeId(tecnico.id);
+      const nome = String(tecnico.nome || '').trim();
+      if (id && nome) map.set(id, nome);
+    });
+    return map;
+  }, [tecnicos]);
+
+  const tecnicosConsolidados = useMemo(() => {
+    const fromServices = buildTechniciansFromServices(services);
+    const serviceStatsById = new Map(
+      fromServices
+        .map((item) => [normalizeId(item.id), item] as const)
+        .filter(([id]) => Boolean(id))
+    );
+    const serviceStatsByName = new Map(
+      fromServices.map((item) => [normalizeName(item.nome), item] as const)
+    );
+
+    const merged = tecnicos.map((tecnico) => {
+      const statsById = serviceStatsById.get(normalizeId(tecnico.id));
+      const statsByName = serviceStatsByName.get(normalizeName(tecnico.nome));
+      const stats = statsById || statsByName;
+
+      return {
+        id: normalizeId(tecnico.id) || normalizeName(tecnico.nome),
+        nome: tecnico.nome,
+        concluidos: stats?.concluidos || 0,
+        andamento: stats?.ativos || 0,
+      };
+    });
+
+    const semCadastro = fromServices
+      .filter((item) => {
+        const id = normalizeId(item.id);
+        const nome = normalizeName(item.nome);
+        return !merged.some((tecnico) => tecnico.id === id || normalizeName(tecnico.nome) === nome);
+      })
+      .map((item) => ({
+        id: normalizeId(item.id) || normalizeName(item.nome),
+        nome: item.nome,
+        concluidos: item.concluidos,
+        andamento: item.ativos,
+      }));
+
+    const combined = [...merged, ...semCadastro];
+    return combined.filter((item, index, array) => {
+      return array.findIndex((candidate) => candidate.id === item.id) === index;
+    });
+  }, [services, tecnicos]);
+
+  const desempenho = useMemo(() => {
+    if (tecnicosConsolidados.length > 0) {
+      return tecnicosConsolidados
+        .filter((item) => item.nome && !/^nao atribuido$/i.test(item.nome))
+        .sort((a, b) => b.andamento - a.andamento);
+    }
+
+    return (dashboard?.desempenho_tecnicos || []).map((tecnico) => ({
+      id: tecnico.tecnico_id,
+      nome: (() => {
+        const nomeApi = String(tecnico.nome || '').trim();
+        const nomePorId = tecnicosById.get(normalizeId(tecnico.tecnico_id)) || '';
+        const nomeInvalido = !nomeApi || /^desconhecido$/i.test(nomeApi);
+        return nomeInvalido ? (nomePorId || 'Desconhecido') : nomeApi;
+      })(),
       concluidos: tecnico.concluidos,
       andamento: tecnico.pendentes,
-    }))
-  ), [dashboard]);
+    }));
+  }, [dashboard, tecnicosById, tecnicosConsolidados]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -94,8 +178,8 @@ export default function AdmRelatoriosScreen() {
           {desempenho.length === 0 ? (
             <Text style={styles.emptyText}>Nenhum tecnico encontrado a partir dos servicos da API.</Text>
           ) : (
-            desempenho.map((item) => (
-              <View key={item.nome} style={styles.rowItem}>
+            desempenho.map((item, index) => (
+              <View key={`${item.id || 'tecnico'}-${item.nome}-${index}`} style={styles.rowItem}>
                 <View>
                   <Text style={styles.rowName}>{item.nome}</Text>
                   <Text style={styles.rowMeta}>{item.andamento} em andamento</Text>

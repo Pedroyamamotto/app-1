@@ -23,6 +23,90 @@ const RegisterSchema = Yup.object().shape({
     .required('A confirmação da senha é obrigatória'),
 });
 
+const pickApiErrorMessage = (data: any, rawText: string) => {
+  const candidates: unknown[] = [
+    data?.message,
+    data?.detail,
+    data?.error,
+    data?.errors,
+    data?.msg,
+    data?.descricao,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) {
+        if (typeof item === 'string' && item.trim()) return item.trim();
+        if (item && typeof item === 'object') {
+          const nested = (item as any)?.message || (item as any)?.detail || (item as any)?.msg;
+          if (typeof nested === 'string' && nested.trim()) return nested.trim();
+        }
+      }
+      continue;
+    }
+
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+
+    if (candidate && typeof candidate === 'object') {
+      const nested = (candidate as any)?.message || (candidate as any)?.detail || (candidate as any)?.msg;
+      if (typeof nested === 'string' && nested.trim()) return nested.trim();
+    }
+  }
+
+  const raw = String(rawText || '').trim();
+  if (raw && !raw.startsWith('<')) return raw;
+
+  return '';
+};
+
+const buildRegisterErrorMessage = (status: number, apiMessage: string) => {
+  const normalized = String(apiMessage || '').toLowerCase();
+  const duplicatedHint = /(já existe|ja existe|already exists|duplicate|duplicado|e-?mail.*(cadastrado|exist)|usu[aá]rio.*exist)/i;
+
+  if (status === 409 || duplicatedHint.test(normalized)) {
+    return [
+      'Este e-mail já está cadastrado.',
+      '',
+      'Como resolver:',
+      '- Use outro e-mail para criar uma nova conta.',
+      '- Ou toque em "Já tem uma conta? Faça login".',
+      '- Se esqueceu a senha, use "Esqueceu a senha?" na tela de login.',
+    ].join('\n');
+  }
+
+  if (status === 400 || status === 422) {
+    return [
+      apiMessage || 'Os dados informados são inválidos.',
+      '',
+      'Verifique e tente novamente:',
+      '- E-mail em formato válido (ex.: nome@dominio.com).',
+      '- Confirmações de e-mail e senha iguais aos campos principais.',
+      '- Senha com pelo menos 6 caracteres.',
+      '- Telefone preenchido corretamente.',
+    ].join('\n');
+  }
+
+  if (status === 403) {
+    return [
+      apiMessage || 'Cadastro não permitido no momento.',
+      '',
+      'Tente novamente em alguns minutos. Se persistir, contate o suporte.',
+    ].join('\n');
+  }
+
+  if (status >= 500) {
+    return [
+      'O servidor está indisponível no momento.',
+      '',
+      'Tente novamente em instantes. Se continuar, contate o suporte.',
+    ].join('\n');
+  }
+
+  return apiMessage || 'Não foi possível criar a conta. Verifique os dados e tente novamente.';
+};
+
 export default function RegisterScreen() {
   const navigation = useNavigation<any>();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -59,14 +143,8 @@ export default function RegisterScreen() {
       } else {
         console.warn('API Error:', data || rawText || response.status);
 
-        const errorMessage =
-          (data?.error && data.error[0]) ||
-          (typeof data?.error === 'string' ? data.error : null) ||
-          data?.message ||
-          data?.detail ||
-          (rawText && !rawText.trim().startsWith('<') ? rawText : null) ||
-          `Falha no servidor (${response.status}).` ||
-          'Não foi possível criar a conta.';
+        const apiMessage = pickApiErrorMessage(data, rawText);
+        const errorMessage = buildRegisterErrorMessage(response.status, apiMessage);
 
         Alert.alert('Erro no cadastro', errorMessage);
       }

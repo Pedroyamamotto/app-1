@@ -1,13 +1,13 @@
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ChecklistModal from '../components/ChecklistModal';
 import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
-import { apiFetch } from '../constants/api';
+import { API_BASE_URL, apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 
 type ServiceData = {
@@ -22,6 +22,23 @@ type ServiceData = {
   data_agendada?: string;
   hora_agendada?: string;
   observacoes?: string;
+  fotos_contexto?: unknown;
+  fotosContexto?: unknown;
+  foto_contexto?: unknown;
+  fotoContexto?: unknown;
+  contexto_fotos?: unknown;
+  contextPhotos?: unknown;
+  foto_instalacao?: unknown;
+  fotoInstalacao?: unknown;
+  foto_url?: unknown;
+  fotoUrl?: unknown;
+  foto_path?: unknown;
+  fotoPath?: unknown;
+  imagem?: unknown;
+  image?: unknown;
+  anexo_foto?: unknown;
+  anexoFoto?: unknown;
+  foto?: unknown;
 };
 
 type UploadedPhoto = {
@@ -80,7 +97,158 @@ export default function PedidoScreen() {
 
   const lockName = useMemo(() => {
     return formatLockDisplayName(service?.descricao_servico || service?.descricao || service?.description || 'Servico');
-  }, [service?.descricao_servico]);
+  }, [service?.descricao_servico, service?.descricao, service?.description]);
+
+  const contextPhotoUrls = useMemo(() => {
+    const found = new Set<string>();
+
+    const toAbsoluteUrl = (raw: string) => {
+      const normalized = String(raw || '').trim().replace(/\\/g, '/');
+      if (!normalized || normalized === '[object Object]') return '';
+      if (/^(https?:|data:|file:|content:)/i.test(normalized)) return encodeURI(normalized);
+      if (normalized.startsWith('/')) return encodeURI(`${API_BASE_URL}${normalized}`);
+      return encodeURI(`${API_BASE_URL}/${normalized}`);
+    };
+
+    const walk = (node: unknown) => {
+      if (!node) return;
+
+      if (typeof node === 'string') {
+        const absolute = toAbsoluteUrl(node);
+        if (absolute) found.add(absolute);
+        return;
+      }
+
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+
+      if (typeof node === 'object') {
+        const asAny = node as any;
+        const candidateKeys = [
+          'url',
+          'uri',
+          'path',
+          'filePath',
+          'filepath',
+          'location',
+          'secure_url',
+          'src',
+          'originalUrl',
+          'publicUrl',
+          'downloadUrl',
+          'fotoUrl',
+          'foto_url',
+          'imagem',
+          'image',
+          'file',
+        ];
+        candidateKeys.forEach((key) => walk(asAny?.[key]));
+
+        const nestedKeys = [
+          'data',
+          'attributes',
+          'asset',
+          'foto',
+          'imagem',
+          'fotos_contexto',
+          'fotosContexto',
+          'porta_cliente',
+          'portaCliente',
+          'contexto_fotos',
+          'contextPhotos',
+        ];
+        nestedKeys.forEach((key) => walk(asAny?.[key]));
+      }
+    };
+
+    walk(
+      service?.fotos_contexto ||
+      service?.fotosContexto ||
+      service?.foto_contexto ||
+      service?.fotoContexto ||
+      service?.contexto_fotos ||
+      service?.contextPhotos
+    );
+
+    return Array.from(found);
+  }, [service]);
+
+  const completionPhotoUrl = useMemo(() => {
+    const toAbsoluteUrl = (raw: string) => {
+      const normalized = String(raw || '').trim().replace(/\\/g, '/');
+      if (!normalized || normalized === '[object Object]') return '';
+      if (/^(https?:|data:|file:|content:)/i.test(normalized)) return encodeURI(normalized);
+      if (normalized.startsWith('/')) return encodeURI(`${API_BASE_URL}${normalized}`);
+      return encodeURI(`${API_BASE_URL}/${normalized}`);
+    };
+
+    const extractSingleUrl = (node: unknown): string => {
+      if (!node) return '';
+
+      if (typeof node === 'string') {
+        return toAbsoluteUrl(node);
+      }
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const found = extractSingleUrl(item);
+          if (found) return found;
+        }
+        return '';
+      }
+
+      if (typeof node === 'object') {
+        const asAny = node as any;
+        const candidateKeys = [
+          'url',
+          'uri',
+          'path',
+          'filePath',
+          'filepath',
+          'location',
+          'secure_url',
+          'src',
+          'originalUrl',
+          'publicUrl',
+          'downloadUrl',
+          'fotoUrl',
+          'foto_url',
+          'imagem',
+          'image',
+          'file',
+        ];
+
+        for (const key of candidateKeys) {
+          const found = extractSingleUrl(asAny?.[key]);
+          if (found) return found;
+        }
+
+        const nestedKeys = ['data', 'attributes', 'asset', 'foto', 'imagem'];
+        for (const key of nestedKeys) {
+          const found = extractSingleUrl(asAny?.[key]);
+          if (found) return found;
+        }
+      }
+
+      return '';
+    };
+
+    return extractSingleUrl(
+      service?.foto_instalacao ||
+      service?.fotoInstalacao ||
+      service?.foto_url ||
+      service?.fotoUrl ||
+      service?.foto_path ||
+      service?.fotoPath ||
+      service?.imagem ||
+      service?.image ||
+      service?.anexo_foto ||
+      service?.anexoFoto ||
+      service?.foto
+    );
+  }, [service]);
 
   const address = useMemo(() => {
     if (!client) return 'Endereço não informado';
@@ -331,7 +499,10 @@ export default function PedidoScreen() {
         <>
           <ScrollView contentContainerStyle={styles.content}>
             <View style={styles.serviceCard}>
-              <Text style={styles.serviceCardTitle}>Serviço:</Text>
+              <View style={styles.serviceTitleRow}>
+                <Feather name="tool" size={18} color="#7A1A1A" />
+                <Text style={styles.serviceCardTitle}>Serviço</Text>
+              </View>
               <Text style={styles.serviceCardText}>{lockName}</Text>
             </View>
 
@@ -364,6 +535,39 @@ export default function PedidoScreen() {
                 <Text style={styles.infoValue}>{formattedDate} às {service?.hora_agendada || '--:--'}</Text>
               </View>
             </View>
+
+            <Text style={styles.sectionTitle}>Fotos de Contexto:</Text>
+            <View style={styles.contextPhotosBlock}>
+              {contextPhotoUrls.length > 0 ? (
+                <>
+                  <Text style={styles.contextCounter}>{contextPhotoUrls.length} foto(s) vinculada(s) ao pedido</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.contextPhotosRow}
+                  >
+                    {contextPhotoUrls.map((uri, index) => (
+                      <Image key={`${uri}-${index}`} source={{ uri }} style={styles.contextPhoto} resizeMode="cover" />
+                    ))}
+                  </ScrollView>
+                </>
+              ) : (
+                <Text style={styles.contextEmptyText}>Nenhuma foto de contexto enviada.</Text>
+              )}
+            </View>
+
+            {isFinalized ? (
+              <>
+                <Text style={styles.sectionTitle}>Foto de Conclusão:</Text>
+                <View style={styles.contextPhotosBlock}>
+                  {completionPhotoUrl ? (
+                    <Image source={{ uri: completionPhotoUrl }} style={styles.contextPhoto} resizeMode="cover" />
+                  ) : (
+                    <Text style={styles.contextEmptyText}>Nenhuma foto de conclusão enviada.</Text>
+                  )}
+                </View>
+              </>
+            ) : null}
           </ScrollView>
 
           <View style={styles.footerActions}>
@@ -451,16 +655,45 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   orderBadgeText: { color: '#e5f7ea', fontSize: 14, fontWeight: '600' },
-  content: { padding: 20, paddingBottom: 180 },
-  serviceCard: { backgroundColor: '#eef2f7', borderRadius: 12, padding: 16, marginBottom: 20 },
-  serviceCardTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 8 },
+  content: { padding: 20, paddingBottom: 240 },
+  serviceCard: {
+    backgroundColor: '#eef2f7',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#d8e1ea',
+  },
+  serviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  serviceCardTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
   serviceCardText: { fontSize: 18, color: '#0f172a', lineHeight: 28 },
   sectionTitle: { fontSize: 22, fontWeight: '700', color: '#0f172a', marginBottom: 10 },
-  infoBlock: { backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 },
+  infoBlock: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 14,
+  },
   infoRow: { paddingVertical: 10 },
   infoLabel: { fontSize: 14, color: '#64748b', marginBottom: 4 },
   infoValue: { fontSize: 16, color: '#0f172a', fontWeight: '600', lineHeight: 22 },
   divider: { height: 1, backgroundColor: '#e5e7eb' },
+  contextPhotosBlock: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  contextCounter: { color: '#64748b', fontSize: 13, fontWeight: '600' },
+  contextPhotosRow: { gap: 10, paddingRight: 4 },
+  contextPhoto: { width: 280, height: 190, borderRadius: 10, backgroundColor: '#e5e7eb' },
+  contextEmptyText: { fontSize: 15, color: '#64748b' },
   footerActions: {
     position: 'absolute',
     left: 20,

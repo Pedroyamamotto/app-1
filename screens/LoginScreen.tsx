@@ -75,12 +75,13 @@ export default function LoginScreen() {
         const apiTypeUser = String(data?.typeUser || userData?.typeUser || '').toLowerCase();
         const resolvedUserId = data?.userId || userData?.id || (isKnownAdminCredential ? ADMIN_USER_ID : null);
 
-        const isAdminUser =
-          apiTypeUser === 'admin' ||
+        const isAdminUserByFallback =
+          isKnownAdminCredential ||
           String(resolvedUserId || '') === ADMIN_USER_ID ||
           normalizedEmail === ADMIN_EMAIL;
 
-        const resolvedTypeUser = isAdminUser ? 'admin' : apiTypeUser || 'user';
+        // Sempre respeita typeUser retornado pela API; fallback só quando ele nao vier.
+        const resolvedTypeUser = apiTypeUser || (isAdminUserByFallback ? 'admin' : 'user');
 
         const hasUserIdentity = !!(userData?.email || userData?.name || userData?.nome || data?.userId);
         if (!token && !hasUserIdentity) {

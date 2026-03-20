@@ -11,24 +11,34 @@ type UploadedPhoto = {
   height?: number;
 };
 
-const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
-  const [photo, setPhoto] = useState<UploadedPhoto | null>(null);
+type PhotoUploadModalProps = {
+  visible: boolean;
+  onClose: () => void;
+  onBack: () => void;
+  onNext: (photo: UploadedPhoto) => void;
+  onNextMany?: (photos: UploadedPhoto[]) => void;
+  allowMultiple?: boolean;
+  title?: string;
+  subtitle?: string;
+  labelText?: string;
+};
+
+const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowMultiple = false, title = 'Foto do Produto Instalado', subtitle = 'Tire uma foto da fechadura digital instalada', labelText = 'Foto da Fechadura *' }: PhotoUploadModalProps) => {
+  const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
 
   useEffect(() => {
     if (!visible) {
-      setPhoto(null);
+      setPhotos([]);
     }
   }, [visible]);
 
-  const handleAsset = (asset: ImagePicker.ImagePickerAsset) => {
-    setPhoto({
-      uri: asset.uri,
-      mimeType: asset.mimeType || undefined,
-      fileName: asset.fileName || undefined,
-      width: asset.width,
-      height: asset.height,
-    });
-  };
+  const mapAssetToPhoto = (asset: ImagePicker.ImagePickerAsset): UploadedPhoto => ({
+    uri: asset.uri,
+    mimeType: asset.mimeType || undefined,
+    fileName: asset.fileName || undefined,
+    width: asset.width,
+    height: asset.height,
+  });
 
   const handleChoosePhoto = () => {
     Alert.alert(
@@ -50,7 +60,12 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
             });
 
             if (!result.canceled) {
-              handleAsset(result.assets[0]);
+              const newPhoto = mapAssetToPhoto(result.assets[0]);
+              if (allowMultiple) {
+                setPhotos((prev) => [...prev, newPhoto]);
+              } else {
+                setPhotos([newPhoto]);
+              }
             }
           }
         },
@@ -65,12 +80,14 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
 
             let result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsMultipleSelection: allowMultiple,
               allowsEditing: false,
               quality: 0.9,
             });
 
             if (!result.canceled) {
-              handleAsset(result.assets[0]);
+              const mapped = result.assets.map(mapAssetToPhoto);
+              setPhotos(mapped);
             }
           }
         },
@@ -92,25 +109,26 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
     >
       <View style={styles.centeredView}>
         <View style={styles.modalView}>
-          <Text style={styles.modalTitle}>Foto do Produto Instalado</Text>
-          <Text style={styles.modalSubtitle}>Tire uma foto da fechadura digital instalada</Text>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <Text style={styles.modalSubtitle}>{subtitle}</Text>
 
           <View style={styles.infoBox}>
             <Feather name="camera" size={18} color="#0050b3" />
             <Text style={styles.infoBoxText}>Aceita fotos em retrato ou paisagem, sem corte obrigatorio</Text>
           </View>
 
-          <Text style={styles.uploadLabel}>Foto da Fechadura *</Text>
+          <Text style={styles.uploadLabel}>{labelText}</Text>
           <TouchableOpacity style={styles.uploadButton} onPress={handleChoosePhoto}>
-            <Text style={styles.uploadButtonText}>{photo ? 'Alterar arquivo' : 'Escolher arquivo'}</Text>
-            {photo && <Text style={styles.fileName}>1 arquivo escolhido</Text>}
+            <Text style={styles.uploadButtonText}>{photos.length > 0 ? 'Alterar arquivo' : 'Escolher arquivo'}</Text>
+            {photos.length > 0 ? <Text style={styles.fileName}>{photos.length} arquivo(s) escolhido(s)</Text> : null}
           </TouchableOpacity>
 
-          {photo && (
+          {photos[0] && (
             <View style={styles.previewContainer}>
-              <Image source={{ uri: photo.uri }} style={styles.previewImage} resizeMode="contain" />
-              {photo.width && photo.height ? (
-                <Text style={styles.previewMeta}>{photo.width}x{photo.height}</Text>
+              <Image source={{ uri: photos[0].uri }} style={styles.previewImage} resizeMode="contain" />
+              {photos.length > 1 ? <Text style={styles.previewMeta}>+{photos.length - 1} foto(s)</Text> : null}
+              {photos[0].width && photos[0].height ? (
+                <Text style={styles.previewMeta}>{photos[0].width}x{photos[0].height}</Text>
               ) : null}
             </View>
           )}
@@ -119,16 +137,27 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext }) => {
             <TouchableOpacity
               style={[styles.button, styles.buttonSecondary]}
               onPress={() => {
-                setPhoto(null);
+                setPhotos([]);
                 onBack();
               }}
             >
               <Text style={styles.buttonSecondaryText}>Voltar</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.button, photo ? styles.buttonPrimary : styles.buttonDisabled]}
-              onPress={() => photo && onNext(photo)}
-              disabled={!photo}
+              style={[styles.button, photos.length > 0 ? styles.buttonPrimary : styles.buttonDisabled]}
+              onPress={() => {
+                if (photos.length === 0) return;
+                if (allowMultiple) {
+                  if (onNextMany) {
+                    onNextMany(photos);
+                    return;
+                  }
+                  onNext(photos[0]);
+                  return;
+                }
+                onNext(photos[0]);
+              }}
+              disabled={photos.length === 0}
             >
               <Text style={styles.buttonText}>Próximo</Text>
             </TouchableOpacity>

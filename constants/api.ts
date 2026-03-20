@@ -1,4 +1,4 @@
-export const API_BASE_URL = 'https://api.yama.ia.br';
+export const API_BASE_URL = 'https://apibling-z8wn.onrender.com';
 export const API_FALLBACK_BASE_URL = 'https://apibling-z8wn.onrender.com';
 
 type ApiFetchInit = RequestInit & {

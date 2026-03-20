@@ -6,6 +6,7 @@ export type AdminServiceData = {
   id: string;
   tecnicoId?: string;
   numeroPedido: string;
+  numeroOrdemServico?: string;
   descricao: string;
   cliente: string;
   tecnico: string;
@@ -15,6 +16,7 @@ export type AdminServiceData = {
   status: AdminServiceStatus;
   checklist?: { item: string; status: boolean }[];
   fotoUri?: string;
+  fotosContextoUris?: string[];
   assinaturaUri?: string;
   assinadoPor?: string;
   horaConclusao?: string;
@@ -96,6 +98,12 @@ type AssignAdminServiceMetadata = {
   tecnicoNome?: string;
   tecnicoEmail?: string;
   tecnicoTelefone?: string;
+};
+
+type UploadServiceContextPhotoPayload = {
+  uri: string;
+  mimeType?: string;
+  fileName?: string;
 };
 
 const N8N_WEBHOOK_TEST = 'https://yamamotto-dev.app.n8n.cloud/webhook-test/Receber';
@@ -324,7 +332,19 @@ const extractAssetPath = (value: unknown): string => {
       if (found) return found;
     }
 
-    const nestedKeys = ['data', 'attributes', 'asset', 'foto', 'imagem'];
+    const nestedKeys = [
+      'data',
+      'attributes',
+      'asset',
+      'foto',
+      'imagem',
+      'fotos_contexto',
+      'fotosContexto',
+      'porta_cliente',
+      'portaCliente',
+      'contexto_fotos',
+      'contextPhotos',
+    ];
     for (const key of nestedKeys) {
       const found = extractAssetPath(asAny?.[key]);
       if (found) return found;
@@ -344,6 +364,102 @@ const resolveAssetUrl = (value: unknown, originBase = API_BASE_URL) => {
   if (/^(https?:|data:|file:|content:)/i.test(normalized)) return encodeURI(normalized);
   if (normalized.startsWith('/')) return encodeURI(`${originBase}${normalized}`);
   return encodeURI(`${originBase}/${normalized}`);
+};
+
+const extractAssetPaths = (value: unknown): string[] => {
+  const found = new Set<string>();
+
+  const walk = (node: unknown) => {
+    if (!node) return;
+
+    if (typeof node === 'string') {
+      const raw = String(node).trim();
+      if (raw && raw !== '[object Object]') found.add(raw);
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+
+    if (typeof node === 'object') {
+      const asAny = node as any;
+      const candidateKeys = [
+        'url',
+        'uri',
+        'path',
+        'filePath',
+        'filepath',
+        'location',
+        'secure_url',
+        'src',
+        'originalUrl',
+        'publicUrl',
+        'downloadUrl',
+        'fotoUrl',
+        'foto_url',
+        'imagem',
+        'image',
+        'file',
+      ];
+
+      candidateKeys.forEach((key) => walk(asAny?.[key]));
+
+      const nestedKeys = [
+        'data',
+        'attributes',
+        'asset',
+        'foto',
+        'imagem',
+        'fotos_contexto',
+        'fotosContexto',
+        'porta_cliente',
+        'portaCliente',
+        'contexto_fotos',
+        'contextPhotos',
+      ];
+      nestedKeys.forEach((key) => walk(asAny?.[key]));
+    }
+  };
+
+  walk(value);
+  return Array.from(found);
+};
+
+const resolveAssetUrls = (value: unknown, originBase = API_BASE_URL): string[] => {
+  return extractAssetPaths(value)
+    .map((raw) => {
+      const normalized = String(raw).replace(/\\/g, '/');
+      if (/^(https?:|data:|file:|content:)/i.test(normalized)) return encodeURI(normalized);
+      if (normalized.startsWith('/')) return encodeURI(`${originBase}${normalized}`);
+      return encodeURI(`${originBase}/${normalized}`);
+    })
+    .filter((url, index, array) => array.indexOf(url) === index);
+};
+
+const normalizeMongoId = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    const raw = String(value).trim();
+    const objectIdMatch = raw.match(/ObjectId\(['\"]?([a-fA-F0-9]{24})['\"]?\)/i);
+    if (objectIdMatch) return objectIdMatch[1];
+    return raw;
+  }
+
+  if (typeof value === 'object') {
+    const asAny = value as any;
+    return (
+      normalizeMongoId(asAny?._id) ||
+      normalizeMongoId(asAny?.id) ||
+      normalizeMongoId(asAny?.$oid) ||
+      normalizeMongoId(asAny?.oid) ||
+      ''
+    );
+  }
+
+  return '';
 };
 
 const mapApiStatusToAdmin = (service: any, tecnico: string): AdminServiceStatus => {
@@ -405,6 +521,18 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
         }))
       : [];
 
+    const fotosContextoUris = resolveAssetUrls(
+      service?.fotos_contexto ||
+        service?.fotosContexto ||
+        service?.foto_contexto ||
+        service?.fotoContexto ||
+        service?.fotosContextoUrls ||
+        service?.fotos_contexto_urls ||
+        service?.contexto_fotos ||
+        service?.contextPhotos,
+      assetOriginBase
+    );
+
     return {
       id: serviceId,
       tecnicoId:
@@ -412,6 +540,32 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
           ? String(service?.tecnico_id || service?.tecnicoId || service?.tecnico?.id || service?.tecnico?._id)
           : undefined,
       numeroPedido: String(service?.numero_pedido || service?.pedido_id || service?.numeroPedido || serviceId),
+      numeroOrdemServico:
+        service?.ordem_de_servico ||
+        service?.ordemDeServico ||
+        service?.ordem_servico ||
+        service?.ordemServico ||
+        service?.numero_os ||
+        service?.numeroOS ||
+        service?.os_numero ||
+        service?.osNumero ||
+        service?.numero_ordem_servico ||
+        service?.numeroOrdemServico ||
+        service?.os?.numero
+          ? String(
+              service?.ordem_de_servico ||
+                service?.ordemDeServico ||
+                service?.ordem_servico ||
+                service?.ordemServico ||
+                service?.numero_os ||
+                service?.numeroOS ||
+                service?.os_numero ||
+                service?.osNumero ||
+                service?.numero_ordem_servico ||
+                service?.numeroOrdemServico ||
+                service?.os?.numero
+            )
+          : undefined,
       descricao: String(service?.descricao_servico || service?.descricao || service?.description || 'Servico'),
       cliente: String(clientName),
       tecnico: String(tecnico),
@@ -420,7 +574,7 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
       data: formatScheduledDate(service?.data_agendada || service?.dataAgendada || service?.date) || '--/--/--',
       status: mapApiStatusToAdmin(service, String(tecnico)),
       checklist,
-      fotoUri: resolveAssetUrl(
+      fotoUri: fotosContextoUris[0] || resolveAssetUrl(
         service?.foto_instalacao ||
           service?.fotoInstalacao ||
           service?.fotoInstalacaoObj ||
@@ -435,6 +589,7 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
           service?.foto,
         assetOriginBase
       ),
+      fotosContextoUris,
       assinaturaUri: resolveAssetUrl(
         service?.assinatura_url ||
           service?.assinaturaUrl ||
@@ -476,7 +631,7 @@ export async function fetchAdminTecnicosFromApi(): Promise<AdminTecnicoUser[]> {
   const list = normalizeTecnicos(payload);
 
   return list.map((item: any, index: number) => ({
-    id: String(item?._id || item?.id || index + 1),
+    id: normalizeMongoId(item?._id || item?.id) || String(index + 1),
     nome: String(item?.nome || item?.name || `Tecnico ${index + 1}`),
     email: String(item?.email || 'nao.informado@yamamotto.com.br'),
     telefone: String(item?.telefone || item?.phone || 'Nao informado'),
@@ -502,8 +657,10 @@ export async function fetchAdminDashboardFromApi(): Promise<AdminDashboardData> 
     },
     desempenho_tecnicos: Array.isArray(payload?.desempenho_tecnicos)
       ? payload.desempenho_tecnicos.map((item: any) => ({
-          tecnico_id: String(item?.tecnico_id || ''),
-          nome: String(item?.nome || 'Tecnico'),
+          tecnico_id: normalizeMongoId(
+            item?.tecnico_id || item?.tecnicoId || item?.tecnico?._id || item?.tecnico?.id || item?.tecnico
+          ),
+          nome: String(item?.nome || item?.tecnico_nome || item?.tecnico?.nome || item?.tecnico?.name || 'Desconhecido'),
           concluidos: Number(item?.concluidos || 0),
           nao_realizados: Number(item?.nao_realizados || 0),
           pendentes: Number(item?.pendentes || 0),
@@ -564,6 +721,27 @@ export async function assignAdminService(
   if (webhookFailures.length > 0) {
     console.warn('Falha ao enviar atribuicao para n8n:', webhookFailures);
   }
+}
+
+export async function uploadAdminServiceContextPhoto(
+  serviceId: string,
+  payload: UploadServiceContextPhotoPayload
+): Promise<void> {
+  const form = new FormData();
+  (form as any).append('foto', {
+    uri: payload.uri,
+    type: payload.mimeType || 'image/jpeg',
+    name: payload.fileName || 'foto.jpg',
+  });
+
+  const adminApiKey = getAdminApiKey();
+  const res = await apiFetch(`/api/admin/services/${serviceId}/fotos-contexto`, {
+    method: 'POST',
+    headers: adminApiKey ? { 'x-admin-key': adminApiKey } : { 'x-user-type': 'admin' },
+    body: form,
+  });
+
+  await throwIfNotOk(res, 'Nao foi possivel enviar foto de contexto');
 }
 
 export function buildTechniciansFromServices(services: AdminServiceData[]): AdminTechnicianData[] {
