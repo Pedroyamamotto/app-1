@@ -2,7 +2,7 @@
   "expo": {
     "name": "ServiYama",
     "slug": "yamaservios",
-    "version": "1.0.0",
+    "version": "3.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "serviyama",
@@ -43,6 +43,7 @@
         }
       ]
     ],
+    "assetBundlePatterns": ["**/*"],
     "extra": {
       "eas": {
         "projectId": "c1df715b-e44b-46b1-836c-9855e5219a1c"
