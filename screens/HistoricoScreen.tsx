@@ -15,6 +15,7 @@ const HistoricoScreen = () => {
   const navigation = useNavigation<any>();
   const [isLoading, setIsLoading] = useState(true);
   const [historyAppointments, setHistoryAppointments] = useState([]);
+  const [summary, setSummary] = useState({ concluido: 0, naoConcluida: 0, emEspera: 0 });
   const [clientsById, setClientsById] = useState<Record<string, any>>({});
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
@@ -108,10 +109,57 @@ const HistoricoScreen = () => {
 
     try {
       const query = tecnicoId ? `?limit=200&tecnicoId=${encodeURIComponent(tecnicoId)}&tecnico_id=${encodeURIComponent(tecnicoId)}` : '?limit=200';
-      const servicesRes = await apiFetch(`/api/services${query}`);
-      const servicesPayload = await servicesRes.json().catch(() => ({}));
+      
+      const [servicesRes, reportsRes] = await Promise.all([
+        apiFetch(`/api/services${query}`),
+        apiFetch('/api/relatorios')
+      ]);
+
+      const [servicesPayload, reportsData] = await Promise.all([
+        servicesRes.json().catch(() => ({})),
+        reportsRes.json().catch(() => ({}))
+      ]);
+
       const services = normalizeServices(servicesPayload);
       const tecnicoServices = services.filter((service) => isAssignedToLoggedTechnician(service));
+
+      // Encontrar dados do técnico logado no relatório (ID ou Nome)
+      const servicosPorTecnico = Array.isArray(reportsData?.servicosConcluidosPorTecnico) ? reportsData.servicosConcluidosPorTecnico : [];
+      const loggedName = String(user?.name || user?.nome || 'pedro adm').trim().toLowerCase();
+      const currentId = String(tecnicoId || '').trim().toLowerCase();
+      
+      const myStats = servicosPorTecnico.find(t => {
+        const reportId = String(t._id || t.id || '').trim().toLowerCase();
+        const reportName = String(t.nome || '').trim().toLowerCase();
+        
+        // Se o nome no relatório contiver o nome logado ou vice-versa, consideramos match
+        const nameMatch = reportName !== '' && (reportName.includes(loggedName) || loggedName.includes(reportName));
+        const idMatch = reportId !== '' && reportId === currentId;
+        
+        return idMatch || nameMatch;
+      });
+
+      let nextSummary;
+      if (myStats) {
+        const concluidos = Number(myStats.concluidos || 0);
+        const ativos = Number(myStats.ativos || 0);
+        const total = Number(myStats.total_tecnico || 0);
+        
+        nextSummary = {
+          concluido: concluidos,
+          naoConcluida: Math.max(0, total - concluidos - ativos),
+          emEspera: ativos
+        };
+      } else {
+        // Fallback para cálculo local se não encontrar no relatório
+        const concluido = tecnicoServices.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
+        const naoConcluida = tecnicoServices.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+        // Considera "Em Espera" tudo que não está concluído ou cancelado/não realizado
+        const emEspera = tecnicoServices.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+        nextSummary = { concluido, naoConcluida, emEspera };
+      }
+
+      setSummary((prev) => (isSame(prev, nextSummary) ? prev : nextSummary));
 
       const finishedServices = tecnicoServices.filter((service) => {
         const status = normalizeStatus(service?.status);
@@ -163,26 +211,25 @@ const HistoricoScreen = () => {
     }, [loadHistorico])
   );
 
-  // Calcula as estatísticas do resumo
-  const summaryStats = useMemo(() => ({
-    concluido: historyAppointments.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length,
-    naoConcluida: historyAppointments.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length,
-    emEspera: historyAppointments.filter((s) => ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length,
-  }), [historyAppointments]);
+  // summaryStats removido em favor do estado summary sincronizado
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
 
       <AppHeader title="Histórico" />
 
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+      >
         <SummaryCard
-          title="Histórico"
+          title=""
           items={[
-            { label: 'Concluído', value: summaryStats.concluido, color: '#1890ff' },
-            { label: 'Não Concluída', value: summaryStats.naoConcluida, color: '#ff4d4f' },
-            { label: 'Em Espera', value: summaryStats.emEspera, color: '#7A1A1A' },
+            { label: 'Concluído', value: summary.concluido, color: '#1890ff' },
+            { label: 'Não Concluída', value: summary.naoConcluida, color: '#ff4d4f' },
+            { label: 'Em Espera', value: summary.emEspera, color: '#7A1A1A' },
           ]}
         />
 
@@ -228,19 +275,27 @@ const HistoricoScreen = () => {
           </View>
         )}
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: { 
+    flex: 1, 
+    backgroundColor: '#7A1A1A' 
+  },
   container: { 
     flex: 1, 
     backgroundColor: '#f0f2f5' 
   },
   content: { 
     flex: 1,
-    padding: 20, 
-    marginTop: -30,
+    marginTop: 22,
+  },
+  contentContainer: {
+    padding: 20,
+    paddingBottom: 100, // Espaço para não ser cortado pelo tab bar
   },
   noServicesContainer: { alignItems: 'center', justifyContent: 'center', padding: 40, backgroundColor: '#fff', borderRadius: 8 },
   noServicesText: { marginTop: 10, fontSize: 16, color: '#999' },

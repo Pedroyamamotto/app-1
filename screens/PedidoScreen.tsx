@@ -1,14 +1,19 @@
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ChecklistModal from '../components/ChecklistModal';
 import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
+import StandardImage from '../components/StandardImage';
+import ImageZoomModal from '../components/ImageZoomModal';
+import { getAdminApiKey } from '../components/shared/admin/adminApi';
 import { API_BASE_URL, apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
+import { appendBase64ToForm, appendFileDataToForm, isWeb } from '../utils/platformUtils';
 
 type ServiceData = {
   _id?: string;
@@ -50,6 +55,7 @@ type UploadedPhoto = {
 type ChecklistCompletePayload = {
   items: string[];
   obs?: string;
+  receiptPhoto?: UploadedPhoto | null;
 };
 
 export default function PedidoScreen() {
@@ -65,10 +71,16 @@ export default function PedidoScreen() {
   const [isPhotoUploadVisible, setPhotoUploadVisible] = useState(false);
   const [isSignatureVisible, setSignatureVisible] = useState(false);
   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
-  const [completionData, setCompletionData] = useState<{ checklist: string[]; checklistObs: string; photo: UploadedPhoto | null }>({ checklist: [], checklistObs: '', photo: null });
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [completionData, setCompletionData] = useState<{ 
+    checklist: string[]; 
+    checklistObs: string; 
+    photo: UploadedPhoto | null;
+    receiptPhoto: UploadedPhoto | null;
+  }>({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null });
 
   const resetCompletionDraft = () => {
-    setCompletionData({ checklist: [], checklistObs: '', photo: null });
+    setCompletionData({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null });
   };
 
   const closeCompletionFlow = () => {
@@ -104,7 +116,9 @@ export default function PedidoScreen() {
 
     const toAbsoluteUrl = (raw: string) => {
       const normalized = String(raw || '').trim().replace(/\\/g, '/');
-      if (!normalized || normalized === '[object Object]') return '';
+      const invalidValues = ['', '/', 'null', 'undefined', '[object object]', 'nan'];
+      if (invalidValues.includes(normalized.toLowerCase())) return '';
+
       if (/^(https?:|data:|file:|content:)/i.test(normalized)) return encodeURI(normalized);
       if (normalized.startsWith('/')) return encodeURI(`${API_BASE_URL}${normalized}`);
       return encodeURI(`${API_BASE_URL}/${normalized}`);
@@ -129,9 +143,6 @@ export default function PedidoScreen() {
         const candidateKeys = [
           'url',
           'uri',
-          'path',
-          'filePath',
-          'filepath',
           'location',
           'secure_url',
           'src',
@@ -140,9 +151,6 @@ export default function PedidoScreen() {
           'downloadUrl',
           'fotoUrl',
           'foto_url',
-          'imagem',
-          'image',
-          'file',
         ];
         candidateKeys.forEach((key) => walk(asAny?.[key]));
 
@@ -178,7 +186,7 @@ export default function PedidoScreen() {
   const completionPhotoUrl = useMemo(() => {
     const toAbsoluteUrl = (raw: string) => {
       const normalized = String(raw || '').trim().replace(/\\/g, '/');
-      if (!normalized || normalized === '[object Object]') return '';
+      if (!normalized || normalized === '[object Object]' || normalized === 'null' || normalized === 'undefined' || normalized === '/') return '';
       if (/^(https?:|data:|file:|content:)/i.test(normalized)) return encodeURI(normalized);
       if (normalized.startsWith('/')) return encodeURI(`${API_BASE_URL}${normalized}`);
       return encodeURI(`${API_BASE_URL}/${normalized}`);
@@ -204,9 +212,6 @@ export default function PedidoScreen() {
         const candidateKeys = [
           'url',
           'uri',
-          'path',
-          'filePath',
-          'filepath',
           'location',
           'secure_url',
           'src',
@@ -215,9 +220,6 @@ export default function PedidoScreen() {
           'downloadUrl',
           'fotoUrl',
           'foto_url',
-          'imagem',
-          'image',
-          'file',
         ];
 
         for (const key of candidateKeys) {
@@ -249,6 +251,17 @@ export default function PedidoScreen() {
       service?.foto
     );
   }, [service]);
+
+  const receiptPhotoUrl = useMemo(() => {
+    if (isFinalized) {
+      const apiKey = getAdminApiKey();
+      return {
+        uri: encodeURI(`${API_BASE_URL}/api/admin/services/comprovante/${serviceId}`),
+        headers: apiKey ? { 'x-admin-key': apiKey } : { 'x-user-type': 'admin' }
+      };
+    }
+    return completionData.receiptPhoto?.uri ? { uri: completionData.receiptPhoto.uri } : null;
+  }, [isFinalized, serviceId, completionData.receiptPhoto]);
 
   const address = useMemo(() => {
     if (!client) return 'Endereço não informado';
@@ -308,8 +321,9 @@ export default function PedidoScreen() {
 
     const items = Array.isArray(payload) ? payload : payload?.items || [];
     const checklistObs = Array.isArray(payload) ? '' : String(payload?.obs || '').trim();
+    const receiptPhoto = Array.isArray(payload) ? null : payload?.receiptPhoto || null;
 
-    setCompletionData((prev) => ({ ...prev, checklist: items, checklistObs }));
+    setCompletionData((prev) => ({ ...prev, checklist: items, checklistObs, receiptPhoto }));
     setChecklistVisible(false);
     setPhotoUploadVisible(true);
   };
@@ -353,6 +367,7 @@ export default function PedidoScreen() {
     return `foto.${ext}`;
   };
 
+  // Volta para FormData: assinatura como base64
   const buildCompletionFormData = (signature: string, photoToSend: UploadedPhoto | null) => {
     const form = new FormData();
     form.append('status', 'concluido');
@@ -360,7 +375,7 @@ export default function PedidoScreen() {
     if (completionData.checklistObs) {
       form.append('observacoes_checklist', completionData.checklistObs);
     }
-    form.append('assinatura', signature);
+    form.append('assinatura', signature); // base64 direto
 
     if (photoToSend?.uri) {
       const mimeType = photoToSend.mimeType || inferMimeType(photoToSend.fileName || photoToSend.uri);
@@ -380,6 +395,7 @@ export default function PedidoScreen() {
     setPhotoUploadVisible(true);
   };
 
+  // Volta para fluxo antigo: envia assinatura como base64 no FormData
   const handleSignatureComplete = async (signature: string) => {
     if (isFinalized) {
       Alert.alert('Serviço já finalizado', 'Este serviço já foi concluído ou marcado como não realizado.');
@@ -403,6 +419,34 @@ export default function PedidoScreen() {
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData?.message || `Erro ${res.status}`);
+      }
+
+      // Se houver comprovante de pagamento, faz o upload separado para o endpoint admin
+      if (completionData.receiptPhoto) {
+        try {
+          const receiptForm = new FormData();
+          const photo = completionData.receiptPhoto;
+          const mimeType = photo.mimeType || inferMimeType(photo.fileName || photo.uri);
+          const fileName = buildPhotoFileName(photo, mimeType);
+          
+          (receiptForm as any).append('comprovante', {
+            uri: photo.uri,
+            type: mimeType,
+            name: fileName,
+          });
+
+          await apiFetch(`/api/admin/services/${serviceId}/comprovante`, {
+            method: 'POST',
+            headers: {
+              'x-admin-key': getAdminApiKey(),
+            },
+            body: receiptForm,
+          });
+        } catch (receiptError) {
+          console.error('Erro ao subir comprovante:', receiptError);
+          // Avisa o usuário mas não impede a finalização
+          Alert.alert('Aviso', 'O serviço foi finalizado, mas houve um erro ao enviar o comprovante de pagamento.');
+        }
       }
 
       setService((prev) => (prev ? { ...prev, status: 'concluido' } : prev));
@@ -465,19 +509,21 @@ export default function PedidoScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Feather name="arrow-left" size={24} color="#fff" />
-        </TouchableOpacity>
-
         <View style={styles.headerInfoRow}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Feather name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
+
           <View style={styles.headerIconCircle}>
             <FontAwesome name="map-marker" size={22} color="#fff" />
           </View>
-          <View>
+
+          <View style={styles.titleContainer}>
             <Text style={styles.headerTitle}>Detalhes da Visita</Text>
             <View style={styles.orderBadge}>
               <Text style={styles.orderBadgeText}>BLING-{service?.numero_pedido || '-'}</Text>
@@ -547,7 +593,13 @@ export default function PedidoScreen() {
                     contentContainerStyle={styles.contextPhotosRow}
                   >
                     {contextPhotoUrls.map((uri, index) => (
-                      <Image key={`${uri}-${index}`} source={{ uri }} style={styles.contextPhoto} resizeMode="cover" />
+                      <StandardImage
+                        key={`${uri}-${index}`}
+                        source={uri}
+                        onPress={() => setZoomedImage(uri)}
+                        containerStyle={styles.contextPhotoContainer}
+                        imageStyle={styles.contextPhoto}
+                      />
                     ))}
                   </ScrollView>
                 </>
@@ -556,12 +608,35 @@ export default function PedidoScreen() {
               )}
             </View>
 
+            {isFinalized || completionData.receiptPhoto ? (
+              <>
+                <Text style={styles.sectionTitle}>Comprovante de Pagamento:</Text>
+                <View style={styles.contextPhotosBlock}>
+                  {receiptPhotoUrl ? (
+                    <StandardImage
+                      source={receiptPhotoUrl}
+                      onPress={() => setZoomedImage(typeof receiptPhotoUrl === 'string' ? receiptPhotoUrl : receiptPhotoUrl.uri)}
+                      containerStyle={styles.contextPhotoContainer}
+                      imageStyle={styles.contextPhoto}
+                    />
+                  ) : (
+                    <Text style={styles.contextEmptyText}>Nenhum comprovante enviado.</Text>
+                  )}
+                </View>
+              </>
+            ) : null}
+
             {isFinalized ? (
               <>
                 <Text style={styles.sectionTitle}>Foto de Conclusão:</Text>
                 <View style={styles.contextPhotosBlock}>
                   {completionPhotoUrl ? (
-                    <Image source={{ uri: completionPhotoUrl }} style={styles.contextPhoto} resizeMode="cover" />
+                    <StandardImage
+                      source={completionPhotoUrl}
+                      onPress={() => setZoomedImage(completionPhotoUrl)}
+                      containerStyle={styles.contextPhotoContainer}
+                      imageStyle={styles.contextPhoto}
+                    />
                   ) : (
                     <Text style={styles.contextEmptyText}>Nenhuma foto de conclusão enviada.</Text>
                   )}
@@ -595,6 +670,12 @@ export default function PedidoScreen() {
         </>
       )}
 
+      <ImageZoomModal
+        visible={!!zoomedImage}
+        imageUri={zoomedImage}
+        onClose={() => setZoomedImage(null)}
+      />
+
       <ChecklistModal
         visible={isChecklistVisible}
         onClose={closeCompletionFlow}
@@ -620,32 +701,35 @@ export default function PedidoScreen() {
         onClose={() => setNotCompletedModalVisible(false)}
         onConfirm={handleNotCompleted}
       />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#7A1A1A' },
   container: { flex: 1, backgroundColor: '#f0f2f5' },
   header: {
     backgroundColor: '#7A1A1A',
-    paddingHorizontal: 15,
-    paddingTop: 50,
-    paddingBottom: 18,
+    paddingHorizontal: 12,
+    paddingTop: 10, // Reduzido pois SafeAreaView já cuida do topo
+    paddingBottom: 15, // Reduzido para ficar mais compacto
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
   },
-  backButton: { width: 36, height: 36, justifyContent: 'center', marginBottom: 6 },
-  headerInfoRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  backButton: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center', marginRight: 4 },
+  headerInfoRow: { flexDirection: 'row', alignItems: 'center' },
+  titleContainer: { justifyContent: 'center', flex: 1 },
   headerIconCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 44, // Reduzido levemente para caber melhor na linha
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginRight: 10,
   },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#fff' },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' }, // Reduzido de 20 para 18
   orderBadge: {
     marginTop: 4,
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -655,7 +739,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   orderBadgeText: { color: '#e5f7ea', fontSize: 14, fontWeight: '600' },
-  content: { padding: 20, paddingBottom: 240 },
+  content: { padding: 20, paddingBottom: 240, marginTop: 22 },
   serviceCard: {
     backgroundColor: '#eef2f7',
     borderRadius: 14,
@@ -672,8 +756,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 15,
+    paddingBottom: 22,
     borderWidth: 1,
     borderColor: '#e5e7eb',
     marginBottom: 14,
@@ -691,8 +775,14 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
   },
   contextCounter: { color: '#64748b', fontSize: 13, fontWeight: '600' },
-  contextPhotosRow: { gap: 10, paddingRight: 4 },
-  contextPhoto: { width: 280, height: 190, borderRadius: 10, backgroundColor: '#e5e7eb' },
+  contextPhotosRow: { gap: 12, paddingRight: 4 },
+  contextPhotoContainer: {
+    marginVertical: 6,
+    marginRight: 8,
+    width: 200,
+    height: 150,
+  },
+  contextPhoto: { width: 200, height: 150 },
   contextEmptyText: { fontSize: 15, color: '#64748b' },
   footerActions: {
     position: 'absolute',

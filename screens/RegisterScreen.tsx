@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Formik } from 'formik';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
 import { apiFetch } from '../constants/api';
@@ -158,10 +158,10 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Formik
           initialValues={{ name: '', email: '', confirmEmail: '', phone: '', password: '', confirmPassword: '' }}
@@ -173,10 +173,14 @@ export default function RegisterScreen() {
           {({ handleChange, handleBlur, handleSubmit, values, errors, isSubmitting, submitCount }) => (
             <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
-                <FontAwesome name="close" size={24} color="black" />
+                <FontAwesome name="close" size={24} color="#7A1A1A" />
               </TouchableOpacity>
-              <View style={styles.iconContainer}>
-                <FontAwesome name="user-plus" size={40} color="#7A1A1A" />
+              <View style={styles.logoWrapper}>
+                  <Image
+                    source={require('../assets/images/serviyama-logo.png')}
+                    style={styles.logo}
+                    resizeMode="contain"
+                  />
               </View>
               <Text style={styles.title}>Criar conta</Text>
               <Text style={styles.subtitle}>Preencha seus dados para se cadastrar</Text>
@@ -267,11 +271,14 @@ const styles = StyleSheet.create({
         right: 20,
         zIndex: 1,
     },
-    iconContainer: {
+    logoWrapper: {
+        alignItems: 'center',
         marginBottom: 15,
-        backgroundColor: '#F5E4E4',
-        borderRadius: 50,
-        padding: 15,
+        alignSelf: 'center',
+    },
+    logo: {
+        width: 150,
+        height: 60,
     },
     title: {
         fontSize: 24,

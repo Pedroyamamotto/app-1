@@ -1,10 +1,16 @@
 
+if (!__DEV__) {
+  console.log = () => {};
+  console.warn = () => {};
+  console.error = () => {};
+}
+
+import { Feather, FontAwesome, Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { registerRootComponent } from 'expo';
 import Constants from 'expo-constants';
+import { useFonts } from 'expo-font';
 import { UserProvider } from './context/UserContext';
 import AppNavigator from './navigation/AppNavigator';
-import { useFonts } from 'expo-font';
-import { Ionicons, MaterialIcons, Feather, FontAwesome } from '@expo/vector-icons';
 
 const isExpoGo =
   Constants.appOwnership === 'expo' ||

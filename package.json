@@ -8,7 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "build:web": "expo export -p web",
+    "build:web": "expo export -p web && node fix-web-dist.js",
     "lint": "expo lint",
     "build:apk": "npx eas-cli build --platform android --profile preview",
     "build:aab": "npx eas-cli build --platform android --profile production"
@@ -16,6 +16,7 @@
   "dependencies": {
     "@expo/ngrok": "4.1.3",
     "@expo/vector-icons": "^15.0.3",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.33",

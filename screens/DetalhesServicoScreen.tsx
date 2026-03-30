@@ -123,8 +123,9 @@ const ServiceDetailScreen = () => {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Feather name="arrow-left" size={24} color="#fff" />
@@ -135,13 +136,16 @@ const ServiceDetailScreen = () => {
           <ActivityIndicator size="large" color="#7A1A1A" />
           <Text style={styles.loadingText}>Buscando serviço...</Text>
         </View>
-      </SafeAreaView>
+        </View>
+    </SafeAreaView>
     );
   }
 
   if (!service) {
     return (
-      <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Feather name="arrow-left" size={24} color="#fff" />
@@ -151,7 +155,8 @@ const ServiceDetailScreen = () => {
         <View style={styles.notFoundContainer}>
           <Text>O serviço que você está procurando não foi encontrado.</Text>
         </View>
-      </SafeAreaView>
+        </View>
+    </SafeAreaView>
     );
   }
 
@@ -168,16 +173,16 @@ const ServiceDetailScreen = () => {
   })();
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Feather name="arrow-left" size={24} color="#fff" />
-        </TouchableOpacity>
-        <FontAwesome name="map-marker" size={20} color="#fff" style={{ marginRight: 10 }} />
-        <Text style={styles.headerTitle}>Detalhes da Instalação</Text>
-      </View>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Feather name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
+          <FontAwesome name="map-marker" size={20} color="#fff" style={{ marginRight: 10 }} />
+          <Text style={styles.headerTitle}>Detalhes da Instalação</Text>
+        </View>
 
       <ScrollView contentContainerStyle={styles.contentContainer}>
         <View style={styles.infoBox}>
@@ -238,16 +243,27 @@ const ServiceDetailScreen = () => {
         onClose={() => setNotCompletedModalVisible(false)}
         onConfirm={handleNotCompleted}
       />
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#7A1A1A' },
   container: { flex: 1, backgroundColor: '#f0f2f5' },
-  header: { backgroundColor: '#7A1A1A', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingTop: 50, paddingBottom: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
+  header: { 
+    backgroundColor: '#7A1A1A', 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 15, 
+    paddingTop: 15,
+    paddingBottom: 22, 
+    borderBottomLeftRadius: 20, 
+    borderBottomRightRadius: 20 
+  },
   backButton: { marginRight: 15, padding: 5 },
-  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
-  contentContainer: { padding: 20, paddingBottom: 160 },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
+  contentContainer: { padding: 20, paddingBottom: 160, marginTop: 22 },
   infoBox: { backgroundColor: '#e6f7ff', borderColor: '#91d5ff', borderWidth: 1, borderRadius: 8, padding: 15, marginBottom: 20 },
   infoBoxText: { color: '#0050b3', fontSize: 14 },
   card: { backgroundColor: '#fff', borderRadius: 8, padding: 20, marginBottom: 20 },

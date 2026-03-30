@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert } from 'react-native';
 
 const checklistItemsData = [
   'Instalação da fechadura digital concluída',
@@ -16,11 +17,13 @@ const checklistItemsData = [
 
 const ChecklistModal = ({ visible, onClose, onComplete }) => {
   const [checkedItems, setCheckedItems] = useState(new Set());
+  const [receiptPhoto, setReceiptPhoto] = useState<any>(null);
   const [obs, setObs] = useState('');
 
   useEffect(() => {
     if (!visible) {
       setCheckedItems(new Set());
+      setReceiptPhoto(null);
       setObs('');
     }
   }, [visible]);
@@ -29,10 +32,58 @@ const ChecklistModal = ({ visible, onClose, onComplete }) => {
     const newCheckedItems = new Set(checkedItems);
     if (newCheckedItems.has(item)) {
       newCheckedItems.delete(item);
+      if (item === 'Cobrança feita') {
+        setReceiptPhoto(null);
+      }
     } else {
       newCheckedItems.add(item);
     }
     setCheckedItems(newCheckedItems);
+  };
+
+  const handlePickReceipt = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à galeria para anexar o comprovante.');
+      return;
+    }
+
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setReceiptPhoto({
+        uri: asset.uri,
+        mimeType: asset.mimeType || 'image/jpeg',
+        fileName: asset.fileName || 'comprovante.jpg',
+      });
+    }
+  };
+
+  const handleTakeReceipt = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à câmera para anexar o comprovante.');
+      return;
+    }
+
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setReceiptPhoto({
+        uri: asset.uri,
+        mimeType: asset.mimeType || 'image/jpeg',
+        fileName: asset.fileName || 'comprovante.jpg',
+      });
+    }
   };
 
   const trimmedObs = obs.trim();
@@ -57,14 +108,51 @@ const ChecklistModal = ({ visible, onClose, onComplete }) => {
           </View>
 
           <ScrollView style={styles.checklistContainer}>
-            {checklistItemsData.map((item, index) => (
-              <TouchableOpacity key={index} style={styles.checklistItem} onPress={() => handleCheck(item)}>
-                <View style={[styles.checkbox, checkedItems.has(item) && styles.checkboxChecked]}>
-                  {checkedItems.has(item) && <Feather name="check" size={14} color="#fff" />}
+            {checklistItemsData.map((item, index) => {
+              const isChecked = checkedItems.has(item);
+              const isCobranca = item === 'Cobrança feita';
+
+              return (
+                <View key={index}>
+                  <TouchableOpacity 
+                    style={[styles.checklistItem, isCobranca && isChecked && styles.checklistItemWithSubContent]} 
+                    onPress={() => handleCheck(item)}
+                  >
+                    <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
+                      {isChecked && <Feather name="check" size={14} color="#fff" />}
+                    </View>
+                    <Text style={styles.checklistLabel}>{item}</Text>
+                  </TouchableOpacity>
+
+                  {isCobranca && isChecked && (
+                    <View style={styles.receiptContainer}>
+                      <Text style={styles.receiptTitle}>Anexar Comprovante de Pagamento:</Text>
+                      <View style={styles.receiptActions}>
+                        <TouchableOpacity style={styles.receiptButton} onPress={handleTakeReceipt}>
+                          <Feather name="camera" size={18} color="#7A1A1A" />
+                          <Text style={styles.receiptButtonText}>Câmera</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.receiptButton} onPress={handlePickReceipt}>
+                          <Feather name="image" size={18} color="#7A1A1A" />
+                          <Text style={styles.receiptButtonText}>Galeria</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {receiptPhoto && (
+                        <View style={styles.receiptPreview}>
+                          <Feather name="file-text" size={16} color="#00a63f" />
+                          <Text style={styles.receiptFileName} numberOfLines={1}>
+                            {receiptPhoto.fileName || 'comprovante_selecionado.jpg'}
+                          </Text>
+                          <TouchableOpacity onPress={() => setReceiptPhoto(null)}>
+                            <Feather name="x-circle" size={18} color="#ef4444" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
-                <Text style={styles.checklistLabel}>{item}</Text>
-              </TouchableOpacity>
-            ))}
+              );
+            })}
 
             <View style={styles.obsContainer}>
               <Text style={styles.obsLabel}>Obs {needsObs ? '*' : '(opcional)'}</Text>
@@ -84,7 +172,11 @@ const ChecklistModal = ({ visible, onClose, onComplete }) => {
             <Text style={styles.counter}>Itens marcados: {checkedItems.size} / {checklistItemsData.length}</Text>
             <TouchableOpacity 
               style={[styles.button, canProceed ? styles.buttonPrimary : styles.buttonDisabled]}
-              onPress={() => onComplete({ items: Array.from(checkedItems), obs: trimmedObs })}
+              onPress={() => onComplete({ 
+                items: Array.from(checkedItems), 
+                obs: trimmedObs,
+                receiptPhoto: receiptPhoto 
+              })}
               disabled={!canProceed}
             >
               <Text style={styles.buttonText}>Próximo</Text>
@@ -108,6 +200,14 @@ const styles = StyleSheet.create({
   infoBoxText: { marginLeft: 10, color: '#0050b3', fontSize: 14 },
   checklistContainer: { flex: 1, marginBottom: 15 },
   checklistItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8f9fa', padding: 15, borderRadius: 8, marginBottom: 10 },
+  checklistItemWithSubContent: { marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+  receiptContainer: { backgroundColor: '#fff', borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: '#f8f9fa', borderBottomLeftRadius: 8, borderBottomRightRadius: 8, padding: 15, marginBottom: 10, marginTop: -2 },
+  receiptTitle: { fontSize: 13, fontWeight: '600', color: '#666', marginBottom: 10 },
+  receiptActions: { flexDirection: 'row', gap: 10 },
+  receiptButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f2f5', padding: 10, borderRadius: 6, gap: 8, borderWidth: 1, borderColor: '#dee2e6' },
+  receiptButtonText: { fontSize: 13, fontWeight: '700', color: '#7A1A1A' },
+  receiptPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f6ffed', borderWidth: 1, borderColor: '#b7eb8f', borderRadius: 6, padding: 8, marginTop: 10, gap: 8 },
+  receiptFileName: { flex: 1, fontSize: 12, color: '#31c27c' },
   checkbox: { width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: '#adb5bd', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   checkboxChecked: { backgroundColor: '#7A1A1A', borderColor: '#7A1A1A' },
   checklistLabel: { flex: 1, fontSize: 14, color: '#495057' },

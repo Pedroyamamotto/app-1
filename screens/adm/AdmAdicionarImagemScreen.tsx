@@ -1,8 +1,13 @@
 import { Feather } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, SafeAreaView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import PhotoUploadModal from '../../components/PhotoUploadModal';
+import StandardImage from '../../components/StandardImage';
+import ImageZoomModal from '../../components/ImageZoomModal';
 import { uploadAdminServiceContextPhoto } from '../../components/shared/admin/adminApi';
+import { isWeb } from '../../utils/platformUtils';
 
 type RouteParams = {
   serviceId?: string;
@@ -24,6 +29,7 @@ export default function AdmAdicionarImagemScreen({ navigation, route }: any) {
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [isPhotoUploadVisible, setPhotoUploadVisible] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
   const mergePhotos = (incoming: UploadedPhoto[]) => {
     setPhotos((prev) => [...prev, ...incoming]);
@@ -122,16 +128,16 @@ export default function AdmAdicionarImagemScreen({ navigation, route }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} activeOpacity={0.85}>
-          <Feather name="arrow-left" size={20} color="#1f2937" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Adicionar Imagem</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} activeOpacity={0.85}>
+            <Feather name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Adicionar Imagem</Text>
+          <View style={styles.headerSpacer} />
+        </View>
 
       <View style={styles.card}>
         <Text style={styles.orderCode}>{orderCode}</Text>
@@ -140,8 +146,31 @@ export default function AdmAdicionarImagemScreen({ navigation, route }: any) {
         <Text style={styles.serviceAddress}>{params.endereco || 'Endereco nao informado'}</Text>
 
         <View style={styles.previewBox}>
-          {(photos[0]?.uri || params.fotoUri) ? (
-            <Image source={{ uri: photos[0]?.uri || params.fotoUri }} style={styles.previewImage} resizeMode="cover" />
+          {photos.filter(p => p.uri && !['', '/', 'null', 'undefined', 'nan'].includes(String(p.uri).toLowerCase())).length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.previewScrollContent}
+            >
+              {photos
+                .filter(p => p.uri && !['', '/', 'null', 'undefined', 'nan'].includes(String(p.uri).toLowerCase()))
+                .map((photo, index) => (
+                <StandardImage
+                  key={`${photo.uri}-${index}`}
+                  source={photo.uri}
+                  onPress={() => setZoomedImage(photo.uri)}
+                  containerStyle={styles.previewImageContainer}
+                  imageStyle={styles.previewImage}
+                />
+              ))}
+            </ScrollView>
+          ) : (params.fotoUri && !['', '/', 'null', 'undefined', 'nan'].includes(String(params.fotoUri).toLowerCase())) ? (
+            <StandardImage
+              source={params.fotoUri}
+              onPress={() => setZoomedImage(params.fotoUri!)}
+              containerStyle={[styles.previewImageContainer, { width: '100%' }]}
+              imageStyle={styles.previewImage}
+            />
           ) : (
             <View style={styles.emptyPreview}>
               <Feather name="image" size={28} color="#9ca3af" />
@@ -186,35 +215,50 @@ export default function AdmAdicionarImagemScreen({ navigation, route }: any) {
         onNext={handlePhotoUploadNext}
         onNextMany={handlePhotoUploadNextMany}
       />
+
+      <ImageZoomModal
+        visible={!!zoomedImage}
+        imageUri={zoomedImage}
+        onClose={() => setZoomedImage(null)}
+      />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#7A1A1A',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f4f5f7',
-    paddingHorizontal: 16,
-    paddingTop: 8,
   },
   header: {
+    backgroundColor: '#7A1A1A',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 15,
+    paddingBottom: 22,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     marginBottom: 14,
   },
   backButton: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 10,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#111827',
+    color: '#fff',
+    flex: 1,
   },
   headerSpacer: {
     width: 38,
@@ -225,6 +269,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#d9dee6',
     padding: 14,
+    marginHorizontal: 16,
   },
   orderCode: {
     alignSelf: 'flex-start',
@@ -257,11 +302,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     borderRadius: 12,
     minHeight: 220,
-    overflow: 'hidden',
     marginBottom: 12,
   },
+  previewScrollContent: {
+    padding: 2,
+    gap: 12,
+  },
+  previewImageContainer: {
+    width: 300,
+    height: 240,
+    marginRight: 10,
+  },
   previewImage: {
-    width: '100%',
+    width: 300,
     height: 240,
   },
   emptyPreview: {

@@ -1,10 +1,10 @@
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
-import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, type AdminDashboardData, type AdminServiceData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, type AdminDashboardData, type AdminServiceData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
 
 const normalizeId = (value: unknown) => {
   const raw = String(value || '').trim();
@@ -26,8 +26,12 @@ export default function AdmRelatoriosScreen() {
       const [nextDashboard, nextTecnicos, nextServices] = await Promise.all([
         fetchAdminDashboardFromApi(),
         fetchAdminTecnicosFromApi(),
-        fetchAdminServicesFromApi(),
+        fetchAdminServicesAllFromApi(),
       ]);
+      // LOGS DE DEPURAÇÃO
+      console.log('[Relatorios] Dashboard recebido:', nextDashboard);
+      console.log('[Relatorios] Tecnicos recebidos:', nextTecnicos);
+      console.log('[Relatorios] Services recebidos:', nextServices);
       setDashboard(nextDashboard);
       setTecnicos(nextTecnicos);
       setServices(nextServices);
@@ -128,27 +132,32 @@ export default function AdmRelatoriosScreen() {
 
   const desempenho = useMemo(() => {
     if (tecnicosConsolidados.length > 0) {
+      // Exibe apenas técnicos que existem no banco (presentes em tecnicosById)
       return tecnicosConsolidados
-        .filter((item) => item.nome && !/^nao atribuido$/i.test(item.nome))
+        .filter((item) => tecnicosById.has(normalizeId(item.id)))
         .sort((a, b) => b.andamento - a.andamento);
     }
 
-    return (dashboard?.desempenho_tecnicos || []).map((tecnico) => ({
-      id: tecnico.tecnico_id,
-      nome: (() => {
-        const nomeApi = String(tecnico.nome || '').trim();
-        const nomePorId = tecnicosById.get(normalizeId(tecnico.tecnico_id)) || '';
-        const nomeInvalido = !nomeApi || /^desconhecido$/i.test(nomeApi);
-        return nomeInvalido ? (nomePorId || 'Desconhecido') : nomeApi;
-      })(),
-      concluidos: tecnico.concluidos,
-      andamento: tecnico.pendentes,
-    }));
+    return (dashboard?.desempenho_tecnicos || [])
+      .filter((tecnico) => tecnicosById.has(normalizeId(tecnico.tecnico_id)))
+      .map((tecnico) => ({
+        id: tecnico.tecnico_id,
+        nome: (() => {
+          const nomeApi = String(tecnico.nome || '').trim();
+          const nomePorId = tecnicosById.get(normalizeId(tecnico.tecnico_id)) || '';
+          const nomeInvalido = !nomeApi || /^desconhecido$/i.test(nomeApi);
+          return nomeInvalido ? (nomePorId || 'Desconhecido') : nomeApi;
+        })(),
+        concluidos: tecnico.concluidos,
+        andamento: tecnico.pendentes,
+      }));
   }, [dashboard, tecnicosById, tecnicosConsolidados]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <AdminHeader />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
+        <AdminHeader />
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <AdminOverviewCard
@@ -193,18 +202,23 @@ export default function AdmRelatoriosScreen() {
           )}
         </View>
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#7A1A1A',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f0f2f5',
   },
   content: {
     flex: 1,
-    marginTop: -4,
+    marginTop: 22,
   },
   contentContainer: {
     padding: 16,

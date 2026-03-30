@@ -2,7 +2,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Formik } from 'formik';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Yup from 'yup';
 import { apiFetch } from '../constants/api';
@@ -31,7 +31,7 @@ const applyMaskedPasswordInput = (typedValue: string, currentPassword: string) =
 
 export default function LoginScreen() {
   const navigation = useNavigation<any>();
-  const { setUser } = useUser();
+  const { saveUser } = useUser();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   const ADMIN_EMAIL = 'admin.20260311163417@yama.ia.br';
@@ -89,7 +89,7 @@ export default function LoginScreen() {
           return;
         }
 
-        setUser({
+        saveUser({
           name: userData?.nome || userData?.name || userData?.username || 'Usuário',
           email: userData?.email || normalizedEmail,
           token: token || null,
@@ -116,9 +116,10 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f0f2f5" />
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
       >
         <ScrollView
@@ -135,8 +136,12 @@ export default function LoginScreen() {
           >
             {({ handleChange, handleBlur, handleSubmit, values, errors, isSubmitting, submitCount, setFieldValue }) => (
               <View style={styles.content}>
-                <View style={styles.iconContainer}>
-                  <FontAwesome name="lock" size={50} color="#7A1A1A" />
+                <View style={styles.logoWrapper}>
+                  <Image
+                    source={require('../assets/images/serviyama-logo.png')}
+                    style={styles.logo}
+                    resizeMode="contain"
+                  />
                 </View>
                 <Text style={styles.title}>Login</Text>
                 <Text style={styles.subtitle}>Bem-vindo de volta!</Text>
@@ -215,15 +220,14 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 35,
   },
-  iconContainer: {
+  logoWrapper: {
     alignItems: 'center',
     marginBottom: 20,
-    backgroundColor: '#F5E4E4',
-    borderRadius: 80,
-    width: 80,
-    height: 80,
-    justifyContent: 'center',
     alignSelf: 'center',
+  },
+  logo: {
+    width: 180,
+    height: 80,
   },
   title: {
     fontSize: 28,

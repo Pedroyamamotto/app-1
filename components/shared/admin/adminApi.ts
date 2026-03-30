@@ -1,10 +1,12 @@
 import { API_BASE_URL, apiFetch } from '../../../constants/api';
+import { appendFileDataToForm } from '../../../utils/platformUtils';
 
 export type AdminServiceStatus = 'aguardando' | 'atribuido' | 'concluido' | 'nao_realizado';
 
 export type AdminServiceData = {
   id: string;
   tecnicoId?: string;
+  pedidoId?: string;
   numeroPedido: string;
   numeroOrdemServico?: string;
   descricao: string;
@@ -23,6 +25,9 @@ export type AdminServiceData = {
   dataConclusao?: string;
   motivo?: string;
   telefone?: string;
+  clienteId?: string;
+  comprovanteUri?: string;
+  rawClientData?: any;
 };
 
 export type AdminTecnicoUser = {
@@ -51,10 +56,17 @@ export type AdminTechnicianData = {
     id: string;
     cliente: string;
     servico: string;
-    status: 'Aguardando' | 'Em andamento' | 'Concluido';
+    status: AdminServiceStatus;
     data: string;
     hora: string;
+    telefone?: string;
+    endereco?: string;
+    dataConclusao?: string;
+    horaConclusao?: string;
+    numeroPedido?: string;
+    numeroOrdemServico?: string;
   }[];
+  endereco?: string;
 };
 
 export type AdminDashboardSummary = {
@@ -159,12 +171,20 @@ const normalizeTecnicos = (payload: unknown): any[] => {
   return [];
 };
 
-const normalizeStatus = (status: unknown): string => String(status || '').toLowerCase();
+const normalizeStatus = (status: unknown): string => 
+  String(status || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]/g, '_')
+    .replace(/_+/g, '_');
+
 
 let hasWarnedMissingAdminKey = false;
 const DEFAULT_EMBEDDED_ADMIN_API_KEY = 'ak_live_2026_Yama_9rT4mN7qX2pL6vK1';
 
-const getAdminApiKey = () =>
+export const getAdminApiKey = () =>
   String(process.env.EXPO_PUBLIC_ADMIN_API_KEY || process.env.ADMIN_API_KEY || DEFAULT_EMBEDDED_ADMIN_API_KEY || '').trim();
 
 const adminHeaders = () => {
@@ -263,6 +283,10 @@ export const buildClientAddress = (cliente: any) => {
 export const formatScheduledDate = (value: unknown) => {
   if (!value) return '';
   const raw = String(value);
+
+  // Se já estiver no formato DD/MM/YYYY, retorna como está
+  if (raw.match(/^\d{2}\/\d{2}\/\d{4}$/)) return raw;
+
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (match) {
     return `${match[3]}/${match[2]}/${match[1].slice(-2)}`;
@@ -311,9 +335,6 @@ const extractAssetPath = (value: unknown): string => {
     const candidateKeys = [
       'url',
       'uri',
-      'path',
-      'filePath',
-      'filepath',
       'location',
       'secure_url',
       'src',
@@ -322,9 +343,6 @@ const extractAssetPath = (value: unknown): string => {
       'downloadUrl',
       'fotoUrl',
       'foto_url',
-      'imagem',
-      'image',
-      'file',
     ];
 
     for (const key of candidateKeys) {
@@ -388,9 +406,6 @@ const extractAssetPaths = (value: unknown): string[] => {
       const candidateKeys = [
         'url',
         'uri',
-        'path',
-        'filePath',
-        'filepath',
         'location',
         'secure_url',
         'src',
@@ -399,9 +414,6 @@ const extractAssetPaths = (value: unknown): string[] => {
         'downloadUrl',
         'fotoUrl',
         'foto_url',
-        'imagem',
-        'image',
-        'file',
       ];
 
       candidateKeys.forEach((key) => walk(asAny?.[key]));
@@ -464,55 +476,37 @@ const normalizeMongoId = (value: unknown): string => {
 
 const mapApiStatusToAdmin = (service: any, tecnico: string): AdminServiceStatus => {
   const status = normalizeStatus(service?.status);
+  const hasTech = (tecnico && tecnico !== 'Nao atribuido') || !!(normalizeMongoId(service?.tecnico_id || service?.tecnicoId || service?.tecnico?._id || service?.tecnico?.id));
 
   if (['concluido', 'concluida'].includes(status)) return 'concluido';
   if (['nao_realizado', 'não_realizado', 'cancelado'].includes(status)) return 'nao_realizado';
-  if (['aceito', 'em_andamento'].includes(status)) return 'atribuido';
-  if (['novo', 'pendente', 'agendado'].includes(status)) {
-    return tecnico && tecnico !== 'Nao atribuido' ? 'atribuido' : 'aguardando';
+  if (['aceito', 'em_andamento', 'atribuido', 'atribuida'].includes(status)) return 'atribuido';
+  
+  if (['novo', 'pendente', 'agendado', 'aguardando'].includes(status)) {
+    return hasTech ? 'atribuido' : 'aguardando';
   }
 
-  return tecnico && tecnico !== 'Nao atribuido' ? 'atribuido' : 'aguardando';
+  return hasTech ? 'atribuido' : 'aguardando';
 };
 
-export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
-  const servicesRes = await apiFetch('/api/admin/services?page=1&limit=100', {
-    headers: adminHeaders(),
-  });
-  await throwIfNotOk(servicesRes, 'Nao foi possivel carregar os servicos admin');
-
-  let assetOriginBase = API_BASE_URL;
-  try {
-    if (servicesRes.url) {
-      assetOriginBase = new URL(servicesRes.url).origin;
-    }
-  } catch {
-    assetOriginBase = API_BASE_URL;
-  }
-
-  const servicesPayload = await readJsonSafely(servicesRes);
-  const rawServices = normalizeServices(servicesPayload);
-
-  return rawServices.map((service: any, index: number) => {
+async function enrichServicesWithClientData(rawServices: any[], assetOriginBase: string): Promise<AdminServiceData[]> {
+  // Mapeamento inicial para pegar os IDs de cliente
+  const baseServices = rawServices.map((service: any, index: number) => {
     const rawCliente = service?.cliente;
     const clientData = typeof rawCliente === 'object' && rawCliente !== null ? rawCliente : {};
     const serviceId = String(service?.id || service?._id || index + 1);
-    const clientName =
-      service?.nome_cliente ||
-      clientData?.cliente ||
-      clientData?.nome ||
-      clientData?.name ||
-      (typeof rawCliente === 'string' ? rawCliente : '') ||
-      `Cliente ${service?.cliente_id || '-'}`;
-    const tecnico =
+    
+    const rawTecnico =
       service?.nome_tecnico ||
       service?.tecnico_nome ||
       service?.tecnico?.nome ||
       service?.tecnico?.name ||
       service?.tecnicoResponsavel ||
-      service?.tecnico ||
-      service?.responsavel ||
-      'Nao atribuido';
+      (typeof service?.tecnico === 'string' ? service.tecnico : undefined) ||
+      service?.responsavel;
+
+    const tecnicoId = normalizeMongoId(service?.tecnico_id || service?.tecnicoId || service?.tecnico?.id || service?.tecnico?._id);
+    const tecnico = (typeof rawTecnico === 'string' && rawTecnico.trim()) ? rawTecnico.trim() : (tecnicoId ? 'Tecnico Selecionado' : 'Nao atribuido');
 
     const checklist = Array.isArray(service?.checklist)
       ? service.checklist.map((item: any) => ({
@@ -533,13 +527,46 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
       assetOriginBase
     );
 
+    const clienteNomeFallback = 
+      service?.nome_cliente || 
+      service?.cliente_nome || 
+      service?.clienteNome || 
+      service?.contato ||
+      clientData?.nome || 
+      clientData?.cliente || 
+      clientData?.name ||
+      (typeof rawCliente === 'string' && rawCliente.length > 5 && !/^[a-f0-9]{24}$/i.test(rawCliente) ? rawCliente : '');
+
+    const telefoneFallback = 
+      service?.telefone_cliente || 
+      service?.telefone_contato || 
+      service?.telefone || 
+      clientData?.telefone ||
+      clientData?.phone ||
+      '';
+
+    const enderecoFallback = 
+      service?.endereco_cliente || 
+      service?.endereco_completo || 
+      service?.endereco || 
+      clientData?.endereco ||
+      buildClientAddress(clientData);
+
     return {
       id: serviceId,
       tecnicoId:
         service?.tecnico_id || service?.tecnicoId || service?.tecnico?.id || service?.tecnico?._id
           ? String(service?.tecnico_id || service?.tecnicoId || service?.tecnico?.id || service?.tecnico?._id)
           : undefined,
+      pedidoId: service?.pedido_id || service?._id || service?.id ? String(service?.pedido_id || service?._id || service?.id) : undefined,
       numeroPedido: String(service?.numero_pedido || service?.pedido_id || service?.numeroPedido || serviceId),
+      clienteId: normalizeMongoId(
+        service?.cliente_id ||
+          service?.clienteId ||
+          (typeof service?.cliente === 'string' && service.cliente.length > 5 && /^[a-f0-9]{24}$/i.test(service.cliente) ? service.cliente : '') ||
+          clientData?._id ||
+          clientData?.id
+      ),
       numeroOrdemServico:
         service?.ordem_de_servico ||
         service?.ordemDeServico ||
@@ -567,14 +594,15 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
             )
           : undefined,
       descricao: String(service?.descricao_servico || service?.descricao || service?.description || 'Servico'),
-      cliente: String(clientName),
+      cliente: String(clienteNomeFallback),
       tecnico: String(tecnico),
-      endereco: String(service?.endereco_cliente || buildClientAddress(clientData)),
-      hora: String(service?.hora_agendada || service?.horaInicio || service?.time || '--:--'),
-      data: formatScheduledDate(service?.data_agendada || service?.dataAgendada || service?.date) || '--/--/--',
+      endereco: String(enderecoFallback),
+      hora: String(service?.hora || service?.hora_agendada || service?.horaInicio || service?.time || '--:--'),
+      data: formatScheduledDate(service?.data || service?.data_agendada || service?.dataAgendada || service?.date) || '--/--/--',
       status: mapApiStatusToAdmin(service, String(tecnico)),
       checklist,
-      fotoUri: fotosContextoUris[0] || resolveAssetUrl(
+      comprovanteUri: encodeURI(`${assetOriginBase}/api/admin/services/comprovante/${serviceId}`),
+      fotoUri: resolveAssetUrl(
         service?.foto_instalacao ||
           service?.fotoInstalacao ||
           service?.fotoInstalacaoObj ||
@@ -611,14 +639,100 @@ export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
           service?.data_conclusao || service?.dataConclusao || service?.finalizado_em || service?.finalizadoEm || service?.updated_at
         ) || undefined,
       motivo: service?.motivo || service?.motivo_nao_realizado || service?.reason || undefined,
-      telefone:
-        service?.telefone_cliente ||
-        clientData?.telefone ||
-        clientData?.phone ||
-        clientData?.celular ||
-        undefined,
+      telefone: String(telefoneFallback),
+      // Guardamos o objeto original do cliente se existir para fallback
+      rawClientData: clientData,
     };
   });
+
+  // Busca informações detalhadas de cada cliente único via /api/clientes/id
+  const uniqueClientIds = [...new Set(baseServices.map((s) => s.clienteId).filter(Boolean))];
+  const clientsMap = new Map<string, any>();
+
+  if (uniqueClientIds.length > 0) {
+    const clientPromises = uniqueClientIds.map(async (cid) => {
+      try {
+        const res = await apiFetch(`/api/clientes/${cid}`, { headers: adminHeaders() });
+        if (res.ok) {
+          const data = await readJsonSafely(res);
+          return { id: cid, data: data?.cliente || data?.data || data };
+        }
+      } catch (e) {
+        console.warn(`[adminApi] Erro ao buscar cliente ${cid} usando /api/clientes:`, e);
+      }
+      return { id: cid, data: null };
+    });
+
+    const results = await Promise.all(clientPromises);
+    results.forEach((r) => {
+      if (r.data) clientsMap.set(r.id, r.data);
+    });
+  }
+
+  // Refina os serviços com os dados reais dos clientes
+  return baseServices.map((s) => {
+    const clientInfo = s.clienteId ? clientsMap.get(s.clienteId) : null;
+    
+    // Priorizamos o que veio da busca detalhada, mas se falhar, usamos o fallback que já tínhamos no 's'
+    const clientName =
+      clientInfo?.cliente ||
+      clientInfo?.nome ||
+      clientInfo?.name ||
+      clientInfo?.nome_completo ||
+      clientInfo?.razao_social ||
+      s.cliente ||
+      (s.clienteId && !/^[a-f0-9]{24}$/i.test(s.clienteId) ? s.clienteId : '') ||
+      '';
+
+    const clientLabel = clientName ? clientName : (s.pedidoId ? `Pedido ${s.pedidoId.slice(-6)}` : 'Cliente -');
+
+    const enderecoEnrich = clientInfo ? buildClientAddress(clientInfo) : '';
+    const endereco = (enderecoEnrich && !enderecoEnrich.includes('não informado')) ? enderecoEnrich : s.endereco;
+    
+    const telefoneEnrich = clientInfo?.telefone || clientInfo?.phone || clientInfo?.celular || '';
+    const telefone = (telefoneEnrich && telefoneEnrich.trim()) ? telefoneEnrich.trim() : s.telefone;
+
+    return {
+      ...s,
+      cliente: String(clientLabel),
+      endereco: String(endereco),
+      telefone: String(telefone),
+    };
+  });
+}
+
+export async function fetchAdminServicesFromApi(): Promise<AdminServiceData[]> {
+  const res = await apiFetch('/api/services?limit=200', { headers: adminHeaders() });
+  await throwIfNotOk(res, 'Nao foi possivel carregar os servicos');
+
+  let assetOriginBase = API_BASE_URL;
+  try {
+    if (res.url) assetOriginBase = new URL(res.url).origin;
+  } catch {
+    assetOriginBase = API_BASE_URL;
+  }
+
+  const payload = await readJsonSafely(res);
+  const rawServices = normalizeServices(payload);
+
+  return enrichServicesWithClientData(rawServices, assetOriginBase);
+}
+
+export async function fetchAdminServicesAllFromApi(): Promise<AdminServiceData[]> {
+  const res = await apiFetch('/api/admin/services?limit=200', { headers: adminHeaders() });
+  await throwIfNotOk(res, 'Nao foi possivel carregar os servicos admin');
+
+  let assetOriginBase = API_BASE_URL;
+  try {
+    if (res.url) assetOriginBase = new URL(res.url).origin;
+  } catch {
+    assetOriginBase = API_BASE_URL;
+  }
+
+  const payload = await readJsonSafely(res);
+  const rawServices = normalizeServices(payload);
+
+  return enrichServicesWithClientData(rawServices, assetOriginBase);
 }
 
 export async function fetchAdminTecnicosFromApi(): Promise<AdminTecnicoUser[]> {
@@ -639,33 +753,32 @@ export async function fetchAdminTecnicosFromApi(): Promise<AdminTecnicoUser[]> {
 }
 
 export async function fetchAdminDashboardFromApi(): Promise<AdminDashboardData> {
-  const res = await apiFetch('/api/admin/dashboard', {
+  const res = await apiFetch('/api/relatorios', {
     headers: adminHeaders(),
   });
   await throwIfNotOk(res, 'Nao foi possivel carregar o dashboard admin');
 
   const payload = (await readJsonSafely(res)) as any;
+  
   return {
     resumo: {
-      aguardando: Number(payload?.resumo?.aguardando || 0),
-      atribuidos: Number(payload?.resumo?.atribuidos || 0),
-      concluidos: Number(payload?.resumo?.concluidos || 0),
-      nao_realizados: Number(payload?.resumo?.nao_realizados || 0),
-      total: Number(payload?.resumo?.total || 0),
-      taxa_conclusao: Number(payload?.resumo?.taxa_conclusao || 0),
-      tecnicos_ativos: Number(payload?.resumo?.tecnicos_ativos || 0),
+      aguardando: Number(payload?.aguardando || 0),
+      atribuidos: Number(payload?.atribuidos || 0),
+      concluidos: Number(payload?.concluidos || 0),
+      nao_realizados: Number(payload?.naoRealizados || payload?.nao_realizados || 0),
+      total: Number(payload?.total || payload?.pedidosTotais || 0),
+      taxa_conclusao: Number(payload?.taxaConclusao || payload?.taxa_conclusao || 0),
+      tecnicos_ativos: Number(payload?.tecnicosAtivos || payload?.tecnicos_ativos || 0),
     },
-    desempenho_tecnicos: Array.isArray(payload?.desempenho_tecnicos)
-      ? payload.desempenho_tecnicos.map((item: any) => ({
-          tecnico_id: normalizeMongoId(
-            item?.tecnico_id || item?.tecnicoId || item?.tecnico?._id || item?.tecnico?.id || item?.tecnico
-          ),
-          nome: String(item?.nome || item?.tecnico_nome || item?.tecnico?.nome || item?.tecnico?.name || 'Desconhecido'),
+    desempenho_tecnicos: Array.isArray(payload?.servicosConcluidosPorTecnico)
+      ? payload.servicosConcluidosPorTecnico.map((item: any) => ({
+          tecnico_id: normalizeMongoId(item?._id || item?.tecnico_id || item?.tecnicoId),
+          nome: String(item?.nome || ''),
           concluidos: Number(item?.concluidos || 0),
-          nao_realizados: Number(item?.nao_realizados || 0),
-          pendentes: Number(item?.pendentes || 0),
-          total: Number(item?.total || 0),
-          taxa_conclusao: Number(item?.taxa_conclusao || 0),
+          nao_realizados: 0,
+          pendentes: Number(item?.ativos || item?.pendentes || 0),
+          total: Number(item?.total_tecnico || item?.total || 0),
+          taxa_conclusao: 0,
         }))
       : [],
   };
@@ -727,12 +840,26 @@ export async function uploadAdminServiceContextPhoto(
   serviceId: string,
   payload: UploadServiceContextPhotoPayload
 ): Promise<void> {
+  if (!payload.uri || typeof payload.uri !== 'string' || payload.uri.trim() === '' || payload.uri === 'null' || payload.uri === 'undefined') {
+    throw new Error('URI da foto inválida ou não definida.');
+  }
   const form = new FormData();
-  (form as any).append('foto', {
+  await appendFileDataToForm(form, 'foto', {
     uri: payload.uri,
-    type: payload.mimeType || 'image/jpeg',
-    name: payload.fileName || 'foto.jpg',
+    mimeType: payload.mimeType || 'image/jpeg',
+    fileName: payload.fileName || 'foto.jpg',
   });
+
+  // DEBUG: logar conteúdo do form (apenas para desenvolvimento)
+  if (__DEV__) {
+    // No React Native, não é possível iterar FormData diretamente, mas podemos logar os dados principais
+    console.log('[uploadAdminServiceContextPhoto] Enviando foto:', {
+      serviceId,
+      uri: payload.uri,
+      mimeType: payload.mimeType,
+      fileName: payload.fileName,
+    });
+  }
 
   const adminApiKey = getAdminApiKey();
   const res = await apiFetch(`/api/admin/services/${serviceId}/fotos-contexto`, {
@@ -742,6 +869,19 @@ export async function uploadAdminServiceContextPhoto(
   });
 
   await throwIfNotOk(res, 'Nao foi possivel enviar foto de contexto');
+}
+
+export async function updateAdminService(
+  serviceId: string,
+  payload: Record<string, any>
+): Promise<void> {
+  const res = await apiFetch(`/api/servicos/editar-completo/${serviceId}`, {
+    method: 'PUT',
+    headers: adminHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  await throwIfNotOk(res, 'Nao foi possivel atualizar o servico');
 }
 
 export function buildTechniciansFromServices(services: AdminServiceData[]): AdminTechnicianData[] {
@@ -774,14 +914,15 @@ export function buildTechniciansFromServices(services: AdminServiceData[]): Admi
       id: service.id,
       cliente: service.cliente,
       servico: service.descricao,
-      status:
-        service.status === 'concluido'
-          ? 'Concluido'
-          : service.status === 'nao_realizado'
-            ? 'Aguardando'
-            : 'Em andamento',
+      status: service.status,
       data: service.data,
       hora: service.hora,
+      telefone: service.telefone,
+      endereco: service.endereco,
+      dataConclusao: service.dataConclusao,
+      horaConclusao: service.horaConclusao,
+      numeroPedido: service.numeroPedido,
+      numeroOrdemServico: service.numeroOrdemServico,
     });
 
     grouped.set(key, current);

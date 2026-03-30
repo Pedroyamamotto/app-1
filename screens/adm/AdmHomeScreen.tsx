@@ -1,113 +1,42 @@
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { Image } from 'expo-image';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageZoomModal from '../../components/ImageZoomModal';
 import PhotoUploadModal from '../../components/PhotoUploadModal';
-import { assignAdminService, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, uploadAdminServiceContextPhoto, type AdminServiceData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+import { assignAdminService, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, type AdminDashboardData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
+import StandardImage from '../../components/StandardImage';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
 import { useUser } from '../../context/UserContext';
+import type { AdminService, ChecklistItem, DropdownKey, FilterState, NaoRealizadoDetail, NewServiceForm, ReagendarForm, ServiceDetail, UploadedPhoto } from './components/types';
 
-type AdminService = AdminServiceData;
+import {
+  DEFAULT_FILTERS,
+  PERIODO_OPTIONS,
+  REAGENDAR_HOURS,
+  REAGENDAR_MINUTES,
+  STATUS_OPTIONS,
+  statusBadgeColorByCode,
+  statusFilterToCode,
+  statusLabelByCode,
+} from './components/constants';
+import {
+  formatOrdemServicoLabel,
+  formatPedidoLabel,
+  fromCalendarDate,
+  getTodayCalendarDate,
+  matchesPeriodo,
+  normalizeDigits,
+  normalizeSearchValue,
+  toCalendarDate,
+} from './components/utils';
 
-type UploadedPhoto = {
-  uri: string;
-  mimeType?: string;
-  fileName?: string;
-};
-
-type FilterState = {
-  status: string;
-  tecnico: string;
-  periodo: string;
-};
-
-type NewServiceForm = {
-  nomeCompleto: string;
-  telefone: string;
-  cep: string;
-  email: string;
-  endereco: string;
-  observacoes: string;
-  descricao: string;
-  tecnicoResponsavel: string;
-  dataHoraVisita: string;
-};
-
-type DropdownKey = 'status' | 'tecnico' | 'periodo' | null;
-
-type ChecklistItem = {
-  id: string;
-  label: string;
-  done: boolean;
-};
-
-type ServiceDetail = Omit<AdminService, 'checklist'> & {
-  horaConclusao?: string;
-  dataConclusao?: string;
-  checklist: ChecklistItem[];
-  fotoUri?: string;
-  assinaturaUri?: string;
-  assinadoPor?: string;
-};
-
-type NaoRealizadoDetail = AdminService & {
-  motivoCompleto: string;
-};
-
-type ReagendarForm = {
-  tecnicoId: string;
-  data: string;
-  hora: string;
-};
-
-const normalizeSearchValue = (value: unknown) =>
-  String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-
-const normalizeDigits = (value: unknown) => String(value || '').replace(/\D/g, '');
-
-const formatPedidoLabel = (value: unknown) => {
-  const raw = String(value || '').trim();
-  if (!raw) return 'PV--';
-  if (raw.startsWith('PV-')) return raw;
-  if (raw.startsWith('BLING-')) return raw.replace(/^BLING-/, 'PV-');
-  return `PV-${raw}`;
-};
-
-const formatOrdemServicoLabel = (value: unknown) => {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  return `OS-${raw}`;
-};
-
-const DEFAULT_FILTERS: FilterState = {
-  status: 'Todos os Status',
-  tecnico: 'Todos os Tecnicos',
-  periodo: 'Todos os Periodos',
-};
-
-const STATUS_OPTIONS = [
-  'Todos os Status',
-  'Aguardando Atribuicao',
-  'Atribuidos',
-  'Concluidos',
-  'Nao Realizados',
-];
-
-const PERIODO_OPTIONS = [
-  'Todos os Periodos',
-  'Hoje',
-  'Esta Semana',
-  'Este Mes',
-];
-
+// Valor padrão para formulário de novo serviço
 const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
   nomeCompleto: '',
   telefone: '',
@@ -116,125 +45,36 @@ const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
   endereco: '',
   observacoes: '',
   descricao: '',
-  tecnicoResponsavel: 'Selecionar depois',
+  tecnicoResponsavel: '',
   dataHoraVisita: '',
 };
 
-const statusLabelByCode: Record<AdminService['status'], string> = {
-  aguardando: 'Aguardando',
-  atribuido: 'Atribuido',
-  concluido: 'Concluido',
-  nao_realizado: 'Nao Realizado',
-};
-
-const statusFilterToCode: Record<string, AdminService['status'] | null> = {
-  'Todos os Status': null,
-  'Aguardando Atribuicao': 'aguardando',
-  Atribuidos: 'atribuido',
-  Concluidos: 'concluido',
-  'Nao Realizados': 'nao_realizado',
-};
-
-const statusBadgeColorByCode: Record<AdminService['status'], string> = {
-  aguardando: '#f15a00',
-  atribuido: '#0ea5a4',
-  concluido: '#2563eb',
-  nao_realizado: '#6b7280',
-};
-
-function parseShortDate(value: string) {
-  const parts = value.split('/');
-  if (parts.length !== 3) {
-    return null;
-  }
-
-  const day = Number(parts[0]);
-  const month = Number(parts[1]);
-  const year = Number(parts[2]);
-  if (!day || !month || !year) {
-    return null;
-  }
-
-  const fullYear = year < 100 ? 2000 + year : year;
-  const parsed = new Date(fullYear, month - 1, day);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed;
-}
-
-function matchesPeriodo(dateText: string, periodo: string) {
-  if (periodo === 'Todos os Periodos') {
-    return true;
-  }
-
-  const date = parseShortDate(dateText);
-  if (!date) {
-    return false;
-  }
-
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-  if (periodo === 'Hoje') {
-    return dateStart.getTime() === todayStart.getTime();
-  }
-
-  if (periodo === 'Esta Semana') {
-    const dayOfWeek = todayStart.getDay();
-    const shift = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const weekStart = new Date(todayStart);
-    weekStart.setDate(todayStart.getDate() - shift);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    return dateStart >= weekStart && dateStart <= weekEnd;
-  }
-
-  if (periodo === 'Este Mes') {
-    return (
-      dateStart.getMonth() === todayStart.getMonth() &&
-      dateStart.getFullYear() === todayStart.getFullYear()
-    );
-  }
-
-  return true;
-}
-
-const REAGENDAR_HOURS = ['06','07','08','09','10','11','12','13','14','15','16','17','18','19','20','21'];
-const REAGENDAR_MINUTES = ['00','15','30','45'];
-
-function toCalendarDate(ddmmyy: string): string {
-  const p = ddmmyy.split('/');
-  if (p.length !== 3) return '';
-  const year = Number(p[2]) < 100 ? `20${p[2].padStart(2,'0')}` : p[2];
-  return `${year}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-}
-
-function fromCalendarDate(yyyymmdd: string): string {
-  const p = yyyymmdd.split('-');
-  if (p.length !== 3) return '';
-  return `${p[2]}/${p[1]}/${p[0].slice(-2)}`;
-}
-
-function getTodayCalendarDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const { user } = useUser() as unknown as { user: { typeUser?: string } | null };
   const canUploadContextPhoto = String(user?.typeUser || '').toLowerCase() === 'admin';
+  const route = useRoute();
+  const navigation = useNavigation();
   const todayCalendarDate = getTodayCalendarDate();
+
+  const closeAllDetailModals = useCallback(() => {
+    setSelectedService(null);
+    setSelectedNaoRealizado(null);
+    setAtribuirVisible(false);
+
+    const params = route.params as any;
+    if (params?.fromTab) {
+      (navigation as any).navigate(params.fromTab);
+      navigation.setParams({ fromTab: undefined, selectedServiceId: undefined } as any);
+    }
+  }, [navigation, route.params]);
+
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [selectedService, setSelectedService] = useState<ServiceDetail | null>(null);
   const [selectedNaoRealizado, setSelectedNaoRealizado] = useState<NaoRealizadoDetail | null>(null);
   const [reagendarVisible, setReagendarVisible] = useState(false);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isReagendarTecnicoOpen, setIsReagendarTecnicoOpen] = useState(false);
   const [showReagendarCal, setShowReagendarCal] = useState(false);
   const [showReagendarTime, setShowReagendarTime] = useState(false);
@@ -254,6 +94,149 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const [adicionarImagemPhotos, setAdicionarImagemPhotos] = useState<UploadedPhoto[]>([]);
   const [isAdicionarPickerVisible, setIsAdicionarPickerVisible] = useState(false);
   const [isAdicionarSending, setIsAdicionarSending] = useState(false);
+
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editTarget, setEditTarget] = useState<AdminService | null>(null);
+  const [editForm, setEditForm] = useState<Partial<AdminService>>({});
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const openEditModal = (item: AdminService) => {
+    // Busca id do cliente usando o novo campo clienteId ou fallback
+    const clienteId = item.clienteId || item.cliente_id || (item.cliente && typeof item.cliente === 'object' ? (item.cliente._id || item.cliente.id || item.cliente.$oid) : '');
+    
+    // Garante que editTarget sempre tenha cliente_id ou clienteId
+    setEditTarget({ ...item, cliente_id: clienteId || '' });
+    setEditForm({
+      cliente: item.cliente || '',
+      telefone: item.telefone || '',
+      endereco: item.endereco || '',
+      descricao: item.descricao || '',
+      data: item.data || '',
+      hora: item.hora || '',
+      ...(clienteId ? { clienteId } : {}),
+    });
+    setIsEditModalVisible(true);
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalVisible(false);
+    setEditTarget(null);
+  };
+
+  const setEditFormField = (field: keyof AdminService | 'clienteId', value: string) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editTarget) return;
+    setIsSavingEdit(true);
+    try {
+      // nomeAntigo deve ser o nome original do cliente antes da edição
+      let nomeAntigo = '';
+      if (editTarget) {
+        if (editTarget.cliente && typeof editTarget.cliente === 'object') {
+          nomeAntigo = editTarget.cliente.nome || editTarget.cliente.cliente || editTarget.cliente.name || '';
+        } else {
+          nomeAntigo = editTarget.cliente || editTarget.nome || '';
+        }
+      }
+      const nomeNovo = editForm.cliente || '';
+      const telefoneNovo = editForm.telefone || '';
+      const enderecoNovo = editForm.endereco || '';
+
+      // Busca o serviço para pegar o cliente_id correto
+      const pedidoId = editTarget.pedidoId || editTarget.id;
+
+      let clienteId = undefined;
+      try {
+        const resServico = await apiFetch(`/api/services/${pedidoId}`);
+        const servicoData = await resServico.json().catch(() => ({}));
+        clienteId =
+          servicoData?.service?.cliente_id ||
+          servicoData?.service?.clienteId ||
+          servicoData?.cliente_id ||
+          servicoData?.clienteId ||
+          servicoData?.service?.cliente?._id ||
+          servicoData?.service?.cliente?.id ||
+          servicoData?.service?.cliente?.$oid ||
+          servicoData?.cliente?._id ||
+          servicoData?.cliente?.id ||
+          servicoData?.cliente?.$oid ||
+          servicoData?.service?.cliente ||
+          servicoData?.cliente ||
+          '';
+      } catch (e) {}
+
+      // Se só for mudar o nome do cliente
+      if (
+        nomeAntigo &&
+        nomeNovo &&
+        nomeAntigo.trim() !== '' &&
+        nomeNovo.trim() !== '' &&
+        nomeAntigo.trim() !== nomeNovo.trim() &&
+        (!clienteId || clienteId === '')
+      ) {
+        const payload = {
+          nomeAntigo: nomeAntigo.trim(),
+          nomeNovo: nomeNovo.trim(),
+        };
+        console.log('[DEBUG handleSaveEdit] PUT /servicos payload (só nome):', payload);
+        const res = await fetch(
+          `https://apibling-z8wn.onrender.com/api/servicos/editar-completo/${encodeURIComponent(pedidoId)}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+        );
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData?.message || `Erro ${res.status}`);
+        }
+        await loadAdminServices();
+        closeEditModal();
+        Alert.alert('Sucesso', 'Nome do cliente atualizado com sucesso.');
+        return;
+      }
+
+      // Monta o payload padrão
+      const payload = {
+        descricao_servico: editForm.descricao || '',
+        status: '',
+        data_agendada: editForm.data || '',
+        hora_agendada: editForm.hora || '',
+        observacoes: '',
+        nome_cliente: nomeNovo,
+        telefone_cliente: telefoneNovo,
+        endereco_completo: enderecoNovo,
+      };
+      if (clienteId && typeof clienteId === 'string' && clienteId.trim() !== '') {
+        payload.cliente_id = clienteId;
+      }
+
+      console.log('[DEBUG handleSaveEdit] PUT /servicos payload:', payload);
+      const res = await fetch(
+        `https://apibling-z8wn.onrender.com/api/servicos/editar-completo/${encodeURIComponent(pedidoId)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.message || `Erro ${res.status}`);
+      }
+
+      await loadAdminServices();
+      closeEditModal();
+      Alert.alert('Sucesso', 'Serviço atualizado com sucesso.');
+    } catch (error) {
+      Alert.alert('Erro ao salvar', error?.message || 'Falha ao atualizar.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   const mergeAdicionarImagemPhotos = (incoming: UploadedPhoto[]) => {
     setAdicionarImagemPhotos((prev) => [...prev, ...incoming]);
@@ -353,15 +336,6 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
         tecnicoId: atribuirForm.tecnicoId,
         dataAgendada: atribuirForm.data,
         horaAgendada: atribuirForm.hora,
-      }, {
-        numeroPedido: atribuirTarget.numeroPedido,
-        descricao: atribuirTarget.descricao,
-        cliente: atribuirTarget.cliente,
-        telefone: atribuirTarget.telefone,
-        endereco: atribuirTarget.endereco,
-        tecnicoNome: tecnicoAtribuidoSelecionado?.nome,
-        tecnicoEmail: tecnicoAtribuidoSelecionado?.email,
-        tecnicoTelefone: tecnicoAtribuidoSelecionado?.telefone,
       });
       setAtribuirVisible(false);
       setAtribuirTarget(null);
@@ -426,6 +400,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     setSelectedService({
       ...item,
       checklist: checklistFromApi,
+      comprovanteUri: item.comprovanteUri,
     });
   };
 
@@ -437,6 +412,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   };
   const [isAssignDropdownOpen, setIsAssignDropdownOpen] = useState(false);
   const [services, setServices] = useState<AdminService[]>([]);
+  const [dashboardData, setDashboardData] = useState<AdminDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -504,12 +480,14 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     }
 
     try {
-      const [nextServices, nextTecnicos] = await Promise.all([
+      const [nextServices, nextTecnicos, nextDash] = await Promise.all([
         fetchAdminServicesFromApi(),
         fetchAdminTecnicosFromApi(),
+        fetchAdminDashboardFromApi(),
       ]);
       setServices(nextServices);
-        setLoadError(null);
+      setDashboardData(nextDash);
+      setLoadError(null);
       setTecnicosApi(nextTecnicos);
     } catch (error) {
         setLoadError(error instanceof Error ? error.message : 'Nao foi possivel carregar os dados da area admin.');
@@ -531,13 +509,28 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     }, [loadAdminServices])
   );
 
+  // Deep linking: abre detalhe se receber selectedServiceId via navegação
+  useEffect(() => {
+    const params = route.params as any;
+    if (params?.selectedServiceId && services.length > 0) {
+      const serviceId = String(params.selectedServiceId);
+      const found = services.find((s) => String(s.id) === serviceId);
+      if (found) {
+        openDetailModal(found);
+        // Limpa o parâmetro para não abrir novamente ao voltar para a tela
+        navigation.setParams({ selectedServiceId: undefined } as any);
+      }
+    }
+  }, [route.params, services, navigation]);
+
   const stats = useMemo(() => {
-    const aguardando = services.filter((s) => s.status === 'aguardando').length;
-    const atribuidos = services.filter((s) => s.status === 'atribuido').length;
-    const concluidos = services.filter((s) => s.status === 'concluido').length;
-    const total = services.length;
-    return { aguardando, atribuidos, concluidos, total };
-  }, [services]);
+    return {
+      aguardando: dashboardData?.resumo.aguardando || 0,
+      atribuidos: dashboardData?.resumo.atribuidos || 0,
+      concluidos: dashboardData?.resumo.concluidos || 0,
+      total: dashboardData?.resumo.total || 0,
+    };
+  }, [dashboardData]);
 
   const tecnicoOptions = useMemo(() => {
     const dynamicTecnicos = [
@@ -571,7 +564,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
       const matchesTecnico =
         appliedFilters.tecnico === 'Todos os Tecnicos'
           ? true
-          : service.tecnico === appliedFilters.tecnico;
+          : String(service.tecnico || '').toLowerCase().trim() === String(appliedFilters.tecnico || '').toLowerCase().trim();
       const matchesPeriodoFilter = matchesPeriodo(service.data, appliedFilters.periodo);
       const ordemDeServico = String(service.numeroOrdemServico || '');
       const numeroPedido = String(service.numeroPedido || '');
@@ -602,8 +595,9 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   }, [appliedFilters, searchQuery, services]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
 
       <AdminHeader />
 
@@ -688,9 +682,14 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                   </View>
                 ) : null}
               </View>
-              <Text style={[styles.orderBadge, { backgroundColor: statusBadgeColorByCode[item.status] }]}>
-                {statusLabelByCode[item.status]}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <TouchableOpacity onPress={() => openEditModal(item)} activeOpacity={0.8} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Feather name="edit-2" size={18} color="#64748b" />
+                </TouchableOpacity>
+                <Text style={[styles.orderBadge, { backgroundColor: statusBadgeColorByCode[item.status] }]}>
+                  {statusLabelByCode[item.status]}
+                </Text>
+              </View>
             </View>
 
             <Text style={styles.clientName}>{item.cliente}</Text>
@@ -911,7 +910,8 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.createModalCard}>
-            <ScrollView contentContainerStyle={styles.createModalContent} showsVerticalScrollIndicator>
+            <ScrollView contentContainerStyle={styles.createModalContent} showsVerticalScrollIndicator
+            >
               <Text style={styles.createTitle}>Cadastrar Novo Pedido</Text>
               <Text style={styles.createSubtitle}>Preencha os dados do cliente e do servico</Text>
 
@@ -1069,12 +1069,106 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
         </View>
       </Modal>
 
+      {/* Modal Editar Serviço */}
+      <Modal
+        visible={isEditModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={closeEditModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.createModalCard}>
+            <ScrollView contentContainerStyle={styles.createModalContent} showsVerticalScrollIndicator
+            >
+              <Text style={styles.createTitle}>Editar Serviço</Text>
+              <Text style={styles.createSubtitle}>Altere os dados do cliente e do serviço</Text>
+
+              <View style={styles.sectionHeader}>
+                <Feather name="user" size={18} color="#7A1A1A" />
+                <Text style={styles.sectionTitle}>Dados do Cliente</Text>
+              </View>
+
+              <Text style={styles.inputLabel}>Cliente *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: Joao da Silva"
+                placeholderTextColor="#64748b"
+                value={editForm.cliente}
+                onChangeText={(value) => setEditFormField('cliente', value)}
+              />
+
+              <Text style={styles.inputLabel}>Telefone</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="(11) 98765-4321"
+                placeholderTextColor="#64748b"
+                value={editForm.telefone}
+                onChangeText={(value) => setEditFormField('telefone', value)}
+              />
+
+              <Text style={styles.inputLabel}>Endereco Completo</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Rua, numero - Bairro, Cidade"
+                placeholderTextColor="#64748b"
+                value={editForm.endereco}
+                onChangeText={(value) => setEditFormField('endereco', value)}
+              />
+
+              <View style={styles.rowTwoColumns}>
+                <View style={styles.columnHalf}>
+                  <Text style={styles.inputLabel}>Data (dd/mm/aaaa)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="dd/mm/aaaa"
+                    placeholderTextColor="#64748b"
+                    value={editForm.data}
+                    onChangeText={(value) => setEditFormField('data', value)}
+                  />
+                </View>
+
+                <View style={styles.columnHalf}>
+                  <Text style={styles.inputLabel}>Hora (HH:MM)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="--:--"
+                    placeholderTextColor="#64748b"
+                    value={editForm.hora}
+                    onChangeText={(value) => setEditFormField('hora', value)}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.createDivider} />
+
+              <TouchableOpacity 
+                style={[styles.createButton, isSavingEdit && { opacity: 0.7 }]} 
+                activeOpacity={0.9} 
+                onPress={handleSaveEdit}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Feather name="save" size={18} color="#fff" />
+                )}
+                <Text style={styles.createButtonText}>Salvar Alterações</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.cancelCreateButton} activeOpacity={0.9} onPress={closeEditModal} disabled={isSavingEdit}>
+                <Text style={styles.cancelCreateButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Modal de detalhes de nao realizado */}
       <Modal
         visible={selectedNaoRealizado !== null}
         animationType="slide"
         transparent={false}
-        onRequestClose={() => setSelectedNaoRealizado(null)}
+        onRequestClose={closeAllDetailModals}
       >
         {selectedNaoRealizado ? (
           <SafeAreaView style={styles.detailContainer}>
@@ -1084,7 +1178,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
               <TouchableOpacity
                 style={styles.detailBackButton}
                 activeOpacity={0.8}
-                onPress={() => setSelectedNaoRealizado(null)}
+                onPress={closeAllDetailModals}
               >
                 <Feather name="chevron-left" size={22} color="#fff" />
               </TouchableOpacity>
@@ -1156,7 +1250,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
               <TouchableOpacity
                 style={styles.closeDetailButton}
                 activeOpacity={0.9}
-                onPress={() => setSelectedNaoRealizado(null)}
+                onPress={closeAllDetailModals}
               >
                 <Text style={styles.closeDetailButtonText}>Fechar</Text>
               </TouchableOpacity>
@@ -1170,7 +1264,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
         visible={atribuirVisible}
         animationType="slide"
         transparent={false}
-        onRequestClose={() => setAtribuirVisible(false)}
+        onRequestClose={closeAllDetailModals}
       >
         {atribuirTarget ? (
           <SafeAreaView style={styles.detailContainer}>
@@ -1181,7 +1275,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
               <TouchableOpacity
                 style={styles.detailBackButton}
                 activeOpacity={0.8}
-                onPress={() => setAtribuirVisible(false)}
+                onPress={closeAllDetailModals}
               >
                 <Feather name="chevron-left" size={22} color="#fff" />
               </TouchableOpacity>
@@ -1227,28 +1321,49 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                 <Text style={styles.detailSectionTitle}>Foto de Contexto</Text>
               </View>
 
-              {(atribuirTarget.fotosContextoUris?.length || 0) > 0 ? (
-                <View style={styles.contextPhotosList}>
-                  {(atribuirTarget.fotosContextoUris || []).map((uri, index) => (
-                    <Image
-                      key={`${uri}-${index}`}
-                      source={{ uri }}
-                      style={styles.detailPhoto}
-                      resizeMode="cover"
+              {/* Extração robusta de fotos de contexto vindas nativamente do parser */}
+              {(() => {
+                const contextPhotoUris = atribuirTarget.fotosContextoUris || [];
+                if (contextPhotoUris.length > 0) {
+                  return (
+                    <View style={styles.contextPhotosContainer}>
+                      <Text style={styles.contextCounter}>
+                        {contextPhotoUris.length} foto(s) de contexto
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.contextPhotosRow}
+                      >
+                        {contextPhotoUris.map((uri, index) => (
+                          <StandardImage
+                            key={`${uri}-${index}`}
+                            source={uri}
+                            onPress={() => setZoomedImage(uri)}
+                            containerStyle={styles.detailPhotoContainerHorizontal}
+                            imageStyle={styles.detailPhotoHorizontal}
+                          />
+                        ))}
+                      </ScrollView>
+                    </View>
+                  );
+                } else if (atribuirTarget.fotoUri) {
+                  return (
+                    <StandardImage
+                      source={atribuirTarget.fotoUri}
+                      onPress={() => setZoomedImage(atribuirTarget.fotoUri!)}
+                      containerStyle={styles.detailPhotoContainer}
+                      imageStyle={styles.detailPhoto}
                     />
-                  ))}
-                </View>
-              ) : atribuirTarget.fotoUri ? (
-                <Image
-                  source={{ uri: atribuirTarget.fotoUri }}
-                  style={styles.detailPhoto}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={styles.signatureBox}>
-                  <Text style={styles.signaturePlaceholder}>Nenhuma foto de contexto enviada</Text>
-                </View>
-              )}
+                  );
+                } else {
+                  return (
+                    <View style={styles.signatureBox}>
+                      <Text style={styles.signaturePlaceholder}>Nenhuma foto de contexto enviada</Text>
+                    </View>
+                  );
+                }
+              })()}
 
               {/* Tecnico */}
               <Text style={styles.atribuirFieldLabel}>Tecnico Responsavel *</Text>
@@ -1490,10 +1605,11 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
               </Text>
 
               {adicionarImagemPhotos[0]?.uri ? (
-                <Image
-                  source={{ uri: adicionarImagemPhotos[0].uri }}
-                  style={styles.fotoPreview}
-                  resizeMode="cover"
+                <StandardImage
+                  source={adicionarImagemPhotos[0].uri}
+                  onPress={() => setZoomedImage(adicionarImagemPhotos[0].uri)}
+                  containerStyle={styles.fotoPreviewContainer}
+                  imageStyle={styles.fotoPreview}
                 />
               ) : null}
 
@@ -1721,7 +1837,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
         visible={selectedService !== null}
         animationType="slide"
         transparent={false}
-        onRequestClose={() => setSelectedService(null)}
+        onRequestClose={closeAllDetailModals}
       >
         {selectedService ? (
           <SafeAreaView style={styles.detailContainer}>
@@ -1732,7 +1848,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
               <TouchableOpacity
                 style={styles.detailBackButton}
                 activeOpacity={0.8}
-                onPress={() => setSelectedService(null)}
+                onPress={closeAllDetailModals}
               >
                 <Feather name="chevron-left" size={22} color="#fff" />
               </TouchableOpacity>
@@ -1828,40 +1944,95 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                 <Text style={styles.detailSectionTitle}>Foto de Contexto</Text>
               </View>
 
-              {(selectedService.fotosContextoUris?.length || 0) > 0 ? (
-                <View style={styles.contextPhotosList}>
-                  {(selectedService.fotosContextoUris || []).map((uri, index) => (
-                    <Image
-                      key={`${uri}-${index}`}
-                      source={{ uri }}
-                      style={styles.detailPhoto}
-                      resizeMode="cover"
-                    />
-                  ))}
-                </View>
-              ) : (
-                <View style={styles.signatureBox}>
-                  <Text style={styles.signaturePlaceholder}>Nenhuma foto de contexto enviada</Text>
-                </View>
-              )}
+              {(() => {
+                const contextPhotoUris = selectedService.fotosContextoUris || [];
+                if (contextPhotoUris.length > 0) {
+                  return (
+                    <View style={[styles.contextPhotosContainer, { marginBottom: 18 }]}> 
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.contextPhotosRow}
+                      >
+                        {contextPhotoUris.map((uri, index) => (
+                          <StandardImage
+                            key={`${uri}-${index}`}
+                            source={uri}
+                            onPress={() => setZoomedImage(uri)}
+                            containerStyle={styles.contextPhotoContainerDetail}
+                            imageStyle={styles.contextPhotoDetail}
+                          />
+                        ))}
+                      </ScrollView>
+                    </View>
+                  );
+                }
+                return (
+                  <View style={styles.signatureBox}>
+                    <Text style={styles.signaturePlaceholder}>Nenhuma foto de contexto enviada</Text>
+                  </View>
+                );
+              })()}
+      {/* Modal de zoom de imagem movido para o final do componente */}
 
               {/* Foto */}
               <View style={styles.detailSectionHeader}>
                 <Feather name="check-circle" size={20} color="#7A1A1A" />
-                <Text style={styles.detailSectionTitle}>Foto da Instalacao</Text>
+                <Text style={styles.detailSectionTitle}>Foto do Serviço</Text>
               </View>
 
-              {selectedService.fotoUri ? (
-                <Image
-                  source={{ uri: selectedService.fotoUri }}
-                  style={styles.detailPhoto}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={styles.signatureBox}>
-                  <Text style={styles.signaturePlaceholder}>Nenhuma foto enviada pelo tecnico</Text>
-                </View>
-              )}
+              {/* Só mostra a foto de instalação se ela não estiver nas fotos de contexto válidas */}
+              {(() => {
+                const install = String(selectedService.fotoUri || '').trim().replace(/\\/g, '/').toLowerCase();
+                if (!install || install === '/' || install === 'null' || install === 'undefined' || install === '[object object]' || install === 'nan') {
+                  return (
+                    <View style={styles.signatureBox}>
+                      <Text style={styles.signaturePlaceholder}>Nenhuma foto enviada pelo tecnico</Text>
+                    </View>
+                  );
+                }
+                const contextList = (selectedService.fotosContextoUris || [])
+                  .map(u => String(u || '').trim().replace(/\\/g, '/').toLowerCase())
+                  .filter(n => n && n !== '/' && n !== 'null' && n !== 'undefined' && n !== '[object object]' && n !== 'nan');
+                if (contextList.includes(install)) {
+                  // Não mostra duplicada
+                  return null;
+                }
+                return (
+                  <StandardImage
+                    source={selectedService.fotoUri}
+                    onPress={() => setZoomedImage(selectedService.fotoUri!)}
+                    containerStyle={styles.detailPhotoContainer}
+                    imageStyle={styles.detailPhoto}
+                  />
+                );
+              })()}
+
+              {/* Comprovante de Pagamento */}
+              {(() => {
+                const hasCobranca = selectedService.checklist.some(c => c.label.includes('Cobrança feita') && c.done);
+                if (!hasCobranca || !selectedService.comprovanteUri) return null;
+
+                const apiKey = getAdminApiKey();
+
+                return (
+                  <>
+                    <View style={styles.detailSectionHeader}>
+                      <Feather name="dollar-sign" size={20} color="#7A1A1A" />
+                      <Text style={styles.detailSectionTitle}>Comprovante de Pagamento</Text>
+                    </View>
+                    <StandardImage
+                      source={{
+                        uri: selectedService.comprovanteUri,
+                        headers: apiKey ? { 'x-admin-key': apiKey } : { 'x-user-type': 'admin' }
+                      }}
+                      onPress={() => setZoomedImage(selectedService.comprovanteUri!)}
+                      containerStyle={styles.detailPhotoContainer}
+                      imageStyle={styles.detailPhoto}
+                    />
+                  </>
+                );
+              })()}
 
               {/* Assinatura */}
               <View style={styles.detailSectionHeader}>
@@ -1874,7 +2045,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                   <Image
                     source={{ uri: selectedService.assinaturaUri }}
                     style={styles.signatureImage}
-                    resizeMode="contain"
+                    contentFit="contain"
                   />
                 </View>
               ) : (
@@ -1889,7 +2060,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
               <TouchableOpacity
                 style={styles.closeDetailButton}
                 activeOpacity={0.9}
-                onPress={() => setSelectedService(null)}
+                onPress={closeAllDetailModals}
               >
                 <Text style={styles.closeDetailButtonText}>Fechar</Text>
               </TouchableOpacity>
@@ -1897,22 +2068,32 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
           </SafeAreaView>
         ) : null}
       </Modal>
+      <ImageZoomModal
+        visible={!!zoomedImage}
+        imageUri={zoomedImage}
+        onClose={() => setZoomedImage(null)}
+      />
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f0f2f5',
+  safeArea: { 
+    flex: 1, 
+    backgroundColor: '#7A1A1A' 
+  },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#fff' // Corrigido para fundo branco padrão do app
   },
   header: {
     backgroundColor: '#2a0000',
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
     paddingHorizontal: 16,
-    paddingTop: 28,
-    paddingBottom: 18,
+    paddingTop: 15,
+    paddingBottom: 22,
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
@@ -1942,7 +2123,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    marginTop: -4,
+    marginTop: 22,
   },
   contentContainer: {
     padding: 16,
@@ -2560,8 +2741,36 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
   },
-  contextPhotosList: {
-    marginBottom: 18,
+  contextPhotosContainer: {
+    marginVertical: 10,
+  },
+  contextCounter: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  contextPhotosRow: {
+    gap: 12,
+    paddingRight: 4,
+  },
+  detailPhotoContainerHorizontal: {
+    width: 220,
+    height: 150,
+    marginRight: 8,
+  },
+  detailPhotoHorizontal: {
+    width: 220,
+    height: 150,
+  },
+  contextPhotoContainerDetail: {
+    width: 200,
+    height: 150,
+    marginRight: 8,
+  },
+  contextPhotoDetail: {
+    width: 200,
+    height: 150,
   },
   checklistItem: {
     flexDirection: 'row',
@@ -2619,13 +2828,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  detailPhotoContainer: {
+    width: 200,
+    height: 150,
+    marginBottom: 10,
+  },
   detailPhoto: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-    marginBottom: 18,
-    borderWidth: 2,
-    borderColor: '#2563eb',
+    width: 200,
+    height: 150,
   },
   signatureBox: {
     borderWidth: 1,
@@ -2672,7 +2882,6 @@ const styles = StyleSheet.create({
     borderColor: '#d1d5db',
     paddingVertical: 10,
     alignItems: 'center',
-    flexDirection: 'row',
     justifyContent: 'center',
     gap: 8,
     backgroundColor: '#f8fafc',
@@ -2912,11 +3121,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 14,
   },
+  fotoPreviewContainer: {
+    width: '100%',
+    height: 200,
+    marginBottom: 6,
+  },
   fotoPreview: {
     width: '100%',
     height: 200,
-    borderRadius: 12,
-    marginBottom: 6,
   },
   cardPhotoThumb: {
     width: '100%',

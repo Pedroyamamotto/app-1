@@ -163,13 +163,60 @@ const HomeScreen = () => {
 
     try {
       const query = tecnicoId ? `?limit=200&tecnicoId=${encodeURIComponent(tecnicoId)}&tecnico_id=${encodeURIComponent(tecnicoId)}` : '?limit=200';
-      const servicesRes = await apiFetch(`/api/services${query}`);
-      const servicesData = await servicesRes.json().catch(() => ({}));
+      
+      const [servicesRes, reportsRes] = await Promise.all([
+        apiFetch(`/api/services${query}`),
+        apiFetch('/api/relatorios')
+      ]);
+
+      const [servicesData, reportsData] = await Promise.all([
+        servicesRes.json().catch(() => ({})),
+        reportsRes.json().catch(() => ({}))
+      ]);
+
       const services = normalizeServices(servicesData);
       const tecnicoServices = services.filter((service) => isAssignedToLoggedTechnician(service));
       const activeServices = tecnicoServices.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status)));
-
       const currentServiceIds = new Set<string>(activeServices.map((service, index) => getServiceStableId(service, index)));
+
+      // Encontrar dados do técnico logado no relatório (ID ou Nome)
+      const servicosPorTecnico = Array.isArray(reportsData?.servicosConcluidosPorTecnico) ? reportsData.servicosConcluidosPorTecnico : [];
+      const loggedName = String(user?.name || user?.nome || 'pedro adm').trim().toLowerCase();
+      const currentId = String(tecnicoId || '').trim().toLowerCase();
+      
+      const myStats = servicosPorTecnico.find(t => {
+        const reportId = String(t._id || t.id || '').trim().toLowerCase();
+        const reportName = String(t.nome || '').trim().toLowerCase();
+        
+        // Se o nome no relatório contiver o nome logado ou vice-versa, consideramos match
+        const nameMatch = reportName !== '' && (reportName.includes(loggedName) || loggedName.includes(reportName));
+        const idMatch = reportId !== '' && reportId === currentId;
+        
+        return idMatch || nameMatch;
+      });
+
+      let nextSummary;
+      if (myStats) {
+        // Mapeamento baseado no relatório centralizado
+        const concluidos = Number(myStats.concluidos || 0);
+        const ativos = Number(myStats.ativos || 0);
+        const total = Number(myStats.total_tecnico || 0);
+        
+        nextSummary = {
+          concluido: concluidos,
+          // Não Concluída = Total - Concluídos - Ativos (Pode incluir cancelados e não realizados)
+          naoConcluida: Math.max(0, total - concluidos - ativos),
+          emEspera: ativos
+        };
+      } else {
+        // Fallback para cálculo local se não encontrar no relatório
+        const concluido = tecnicoServices.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
+        const naoConcluida = tecnicoServices.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+        // Considera "Em Espera" tudo que não está concluído ou cancelado/não realizado
+        const emEspera = tecnicoServices.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+        nextSummary = { concluido, naoConcluida, emEspera };
+      }
+
       if (hasLoadedOnce && previousServiceIdsRef.current.size > 0) {
         const hasNotificationPermission = Notifications
           ? (await Notifications.getPermissionsAsync()).granted
@@ -185,11 +232,6 @@ const HomeScreen = () => {
         }
       }
       previousServiceIdsRef.current = currentServiceIds;
-
-      const concluido = tecnicoServices.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
-      const naoConcluida = tecnicoServices.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
-      const emEspera = tecnicoServices.filter((s) => ['novo', 'pendente', 'agendado', 'aceito', 'em_andamento'].includes(normalizeStatus(s?.status))).length;
-      const nextSummary = { concluido, naoConcluida, emEspera };
 
       setSummary((prev) => (isSame(prev, nextSummary) ? prev : nextSummary));
       setUpcomingServices((prev) => (isSame(prev, activeServices) ? prev : activeServices));
@@ -241,19 +283,20 @@ const HomeScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <AppHeader
-        title="Home"
-        subtitle={`Bem-vindo ${user?.name || 'João'}`}
-        rightContent={(
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <FontAwesome name="sign-out" size={24} color="#fff" />
-          </TouchableOpacity>
-        )}
-      />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
+        <AppHeader
+          title="Home"
+          subtitle={`Bem-vindo ${user?.name || 'João'}`}
+          rightContent={(
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+              <FontAwesome name="sign-out" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
+        />
 
-      <ScrollView style={styles.content}>
+        <ScrollView style={styles.content}>
         <SummaryCard
           title="Visão Geral"
           items={[
@@ -306,11 +349,16 @@ const HomeScreen = () => {
           })
         )}
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#7A1A1A',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f0f2f5',
@@ -321,7 +369,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
-    marginTop: -30,
+    marginTop: 22,
   },
   servicesTitle: {
     fontSize: 18,

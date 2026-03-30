@@ -1,8 +1,14 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import SummaryCard from '../components/shared/SummaryCard';
+import { fetchAdminDashboardFromApi } from '../components/shared/admin/adminApi';
 
 const PendentesScreen = () => {
+  const [dashboard, setDashboard] = useState(null);
+  useEffect(() => {
+    fetchAdminDashboardFromApi().then(setDashboard).catch(() => setDashboard(null));
+  }, []);
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -11,25 +17,16 @@ const PendentesScreen = () => {
           <Text style={styles.headerTitle}>Pendentes</Text>
         </View>
       </View>
-
       <View style={styles.content}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Instalações Pendentes</Text>
-          <View style={styles.summaryStats}>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: '#ff4d4f' }]}>0</Text>
-              <Text style={styles.statLabel}>Novos</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: '#7A1A1A' }]}>0</Text>
-              <Text style={styles.statLabel}>Agendados</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: '#1890ff' }]}>0</Text>
-              <Text style={styles.statLabel}>Concluídos</Text>
-            </View>
-          </View>
-        </View>
+        <SummaryCard
+          title="Instalações Pendentes"
+          items={[
+            { label: 'Aguardando', value: dashboard?.resumo?.aguardando ?? 0, color: '#ffb300' },
+            { label: 'Atribuídos', value: dashboard?.resumo?.atribuidos ?? 0, color: '#7A1A1A' },
+            { label: 'Concluídos', value: dashboard?.resumo?.concluidos ?? 0, color: '#1890ff' },
+            { label: 'Total', value: dashboard?.resumo?.total ?? 0, color: '#0f172a' },
+          ]}
+        />
       </View>
     </SafeAreaView>
   );

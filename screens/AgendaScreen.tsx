@@ -28,6 +28,7 @@ const AgendaScreen = () => {
   const [selectedDate, setSelectedDate] = useState(today);
   const [isLoading, setIsLoading] = useState(true);
   const [allAppointments, setAllAppointments] = useState([]);
+  const [summary, setSummary] = useState({ concluido: 0, naoConcluida: 0, emEspera: 0 });
   const [clientsById, setClientsById] = useState<Record<string, any>>({});
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
@@ -166,10 +167,53 @@ const AgendaScreen = () => {
 
     try {
       const query = tecnicoId ? `?limit=200&tecnicoId=${encodeURIComponent(tecnicoId)}&tecnico_id=${encodeURIComponent(tecnicoId)}` : '?limit=200';
-      const servicesRes = await apiFetch(`/api/services${query}`);
-      const servicesPayload = await servicesRes.json().catch(() => ({}));
+      
+      const [servicesRes, reportsRes] = await Promise.all([
+        apiFetch(`/api/services${query}`),
+        apiFetch('/api/relatorios')
+      ]);
+
+      const [servicesPayload, reportsData] = await Promise.all([
+        servicesRes.json().catch(() => ({})),
+        reportsRes.json().catch(() => ({}))
+      ]);
+
       const services = normalizeServices(servicesPayload);
       const tecnicoServices = services.filter((service) => isAssignedToLoggedTechnician(service));
+
+      // Encontrar dados do técnico logado no relatório (ID ou Nome)
+      const servicosPorTecnico = Array.isArray(reportsData?.servicosConcluidosPorTecnico) ? reportsData.servicosConcluidosPorTecnico : [];
+      const loggedName = String(user?.name || user?.nome || '').trim().toLowerCase();
+      
+      const myStats = servicosPorTecnico.find(t => {
+        const reportId = String(t._id || t.id || '');
+        const currentId = String(tecnicoId || '');
+        const reportName = String(t.nome || '').trim().toLowerCase();
+        
+        return (reportId !== '' && reportId === currentId) || (reportName !== '' && reportName === loggedName);
+      });
+
+      let nextSummary;
+      if (myStats) {
+        const concluidos = Number(myStats.concluidos || 0);
+        const ativos = Number(myStats.ativos || 0);
+        const total = Number(myStats.total_tecnico || 0);
+        
+        nextSummary = {
+          concluido: concluidos,
+          naoConcluida: Math.max(0, total - concluidos - ativos),
+          emEspera: ativos
+        };
+      } else {
+        // Fallback para cálculo local se não encontrar no relatório
+        const concluido = tecnicoServices.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
+        const naoConcluida = tecnicoServices.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+        // Considera "Em Espera" tudo que não está concluído ou cancelado/não realizado
+        const emEspera = tecnicoServices.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
+        nextSummary = { concluido, naoConcluida, emEspera };
+      }
+
+      setSummary((prev) => (isSame(prev, nextSummary) ? prev : nextSummary));
 
       const activeServices = tecnicoServices.filter((service) => isOpenStatus(service?.status));
 
@@ -219,11 +263,7 @@ const AgendaScreen = () => {
     }, [loadAgenda])
   );
 
-  const summaryStats = useMemo(() => ({
-    concluido: allAppointments.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length,
-    naoConcluida: allAppointments.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length,
-    emEspera: allAppointments.filter((s) => isOpenStatus(s?.status)).length,
-  }), [allAppointments]);
+  // summaryStats removido em favor do estado summary sincronizado
 
   const { filteredServices, markedDates } = useMemo(() => {
     const openAppointments = allAppointments.filter((service) => isOpenStatus(service?.status));
@@ -245,8 +285,9 @@ const AgendaScreen = () => {
   const formattedSelectedDate = new Date(selectedDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' });
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
 
       <AppHeader title="Agenda" />
       
@@ -254,9 +295,9 @@ const AgendaScreen = () => {
         <SummaryCard
           title="Visão Geral"
           items={[
-            { label: 'Concluído', value: summaryStats.concluido, color: '#1890ff' },
-            { label: 'Não Concluída', value: summaryStats.naoConcluida, color: '#ff4d4f' },
-            { label: 'Em Espera', value: summaryStats.emEspera, color: '#7A1A1A' },
+            { label: 'Concluído', value: summary.concluido, color: '#1890ff' },
+            { label: 'Não Concluída', value: summary.naoConcluida, color: '#ff4d4f' },
+            { label: 'Em Espera', value: summary.emEspera, color: '#7A1A1A' },
           ]}
         />
 
@@ -305,18 +346,23 @@ const AgendaScreen = () => {
           </View>
         )}
       </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#7A1A1A',
+  },
   container: { 
     flex: 1, 
     backgroundColor: '#f0f2f5' 
   },
   content: {
     flex: 1,
-    marginTop: -10,
+    marginTop: 22,
   },
   contentContainer: {
     padding: 20,

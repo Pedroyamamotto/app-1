@@ -1,7 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
+import StandardImage from './StandardImage';
+import { isWeb } from '../utils/platformUtils';
 
 type UploadedPhoto = {
   uri: string;
@@ -40,63 +42,46 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
     height: asset.height,
   });
 
-  const handleChoosePhoto = () => {
-    Alert.alert(
-      "Selecionar Foto",
-      "Escolha uma opção",
-      [
-        {
-          text: "Tirar Foto",
-          onPress: async () => {
-            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-            if (status !== 'granted') {
-              alert('Desculpe, precisamos da permissão da câmera para fazer isso funcionar!');
-              return;
-            }
+  const handleTakePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      alert('Desculpe, precisamos da permissão da câmera para fazer isso funcionar!');
+      return;
+    }
 
-            let result = await ImagePicker.launchCameraAsync({
-              allowsEditing: false,
-              quality: 0.9,
-            });
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: false,
+      quality: 0.9,
+    });
 
-            if (!result.canceled) {
-              const newPhoto = mapAssetToPhoto(result.assets[0]);
-              if (allowMultiple) {
-                setPhotos((prev) => [...prev, newPhoto]);
-              } else {
-                setPhotos([newPhoto]);
-              }
-            }
-          }
-        },
-        {
-          text: "Escolher da Galeria",
-          onPress: async () => {
-            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (status !== 'granted') {
-              alert('Desculpe, precisamos da permissão da galeria para fazer isso funcionar!');
-              return;
-            }
+    if (!result.canceled) {
+      const newPhoto = mapAssetToPhoto(result.assets[0]);
+      if (allowMultiple) {
+        setPhotos((prev) => [...prev, newPhoto]);
+      } else {
+        setPhotos([newPhoto]);
+      }
+    }
+  };
 
-            let result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsMultipleSelection: allowMultiple,
-              allowsEditing: false,
-              quality: 0.9,
-            });
+  const handlePickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      alert('Desculpe, precisamos da permissão da galeria para fazer isso funcionar!');
+      return;
+    }
 
-            if (!result.canceled) {
-              const mapped = result.assets.map(mapAssetToPhoto);
-              setPhotos(mapped);
-            }
-          }
-        },
-        {
-          text: "Cancelar",
-          style: "cancel"
-        }
-      ]
-    );
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: allowMultiple,
+      allowsEditing: false,
+      quality: 0.9,
+    });
+
+    if (!result.canceled) {
+      const mapped = result.assets.map(mapAssetToPhoto);
+      setPhotos(mapped);
+    }
   };
 
   return (
@@ -114,22 +99,38 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
 
           <View style={styles.infoBox}>
             <Feather name="camera" size={18} color="#0050b3" />
-            <Text style={styles.infoBoxText}>Aceita fotos em retrato ou paisagem, sem corte obrigatorio</Text>
+            <Text style={styles.infoBoxText}>Aceita fotos em retrato ou paisagem, sem corte obrigatório</Text>
           </View>
 
           <Text style={styles.uploadLabel}>{labelText}</Text>
-          <TouchableOpacity style={styles.uploadButton} onPress={handleChoosePhoto}>
-            <Text style={styles.uploadButtonText}>{photos.length > 0 ? 'Alterar arquivo' : 'Escolher arquivo'}</Text>
-            {photos.length > 0 ? <Text style={styles.fileName}>{photos.length} arquivo(s) escolhido(s)</Text> : null}
-          </TouchableOpacity>
+          
+          <View style={styles.selectionRow}>
+            {/* Ocultar botão de tirar foto no Web se não houver suporte (opcional, mas launchCameraAsync funciona no desktop se houver webcam) */}
+            <TouchableOpacity style={styles.selectionButton} onPress={handleTakePhoto}>
+              <Feather name="camera" size={24} color="#7A1A1A" />
+              <Text style={styles.selectionButtonText}>Tirar Foto</Text>
+            </TouchableOpacity>
 
-          {photos[0] && (
+            <TouchableOpacity style={styles.selectionButton} onPress={handlePickImage}>
+              <Feather name="image" size={24} color="#7A1A1A" />
+              <Text style={styles.selectionButtonText}>Galeria</Text>
+            </TouchableOpacity>
+          </View>
+
+          {photos.length > 0 && (
             <View style={styles.previewContainer}>
-              <Image source={{ uri: photos[0].uri }} style={styles.previewImage} resizeMode="contain" />
-              {photos.length > 1 ? <Text style={styles.previewMeta}>+{photos.length - 1} foto(s)</Text> : null}
-              {photos[0].width && photos[0].height ? (
-                <Text style={styles.previewMeta}>{photos[0].width}x{photos[0].height}</Text>
-              ) : null}
+              <StandardImage
+                source={photos[0].uri}
+                containerStyle={styles.previewImageContainer}
+                imageStyle={styles.previewImage}
+                showZoomLabel={false}
+              />
+              <View style={styles.previewInfo}>
+                <Text style={styles.fileName}>{photos.length} arquivo(s) selecionado(s)</Text>
+                {photos[0].width && photos[0].height ? (
+                  <Text style={styles.previewMeta}>{photos[0].width}x{photos[0].height}</Text>
+                ) : null}
+              </View>
             </View>
           )}
           
@@ -175,14 +176,17 @@ const styles = StyleSheet.create({
   modalSubtitle: { fontSize: 14, color: '#666', marginBottom: 20 },
   infoBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e6f7ff', borderRadius: 8, padding: 12, marginBottom: 20 },
   infoBoxText: { marginLeft: 10, color: '#0050b3', fontSize: 14 },
-  uploadLabel: { fontSize: 14, fontWeight: 'bold', color: '#333', marginBottom: 8 },
-  uploadButton: { backgroundColor: '#f8f9fa', borderRadius: 8, padding: 15, borderWidth: 1, borderColor: '#dee2e6', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  uploadButtonText: { color: '#495057', fontWeight: '500' },
-  fileName: { color: '#7A1A1A', fontSize: 12 },
-  previewContainer: { marginTop: 15, alignItems: 'center' },
-  previewImage: { width: 260, height: 180, borderRadius: 8, backgroundColor: '#f8fafc' },
-  previewMeta: { marginTop: 8, fontSize: 12, color: '#64748b' },
-  footer: { position: 'absolute', bottom: 25, left: 25, right: 25, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 15 },
+  uploadLabel: { fontSize: 14, fontWeight: 'bold', color: '#333', marginBottom: 12 },
+  selectionRow: { flexDirection: 'row', gap: 15, marginBottom: 20 },
+  selectionButton: { flex: 1, backgroundColor: '#f8f9fa', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#dee2e6', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  selectionButtonText: { color: '#495057', fontWeight: 'bold', fontSize: 14 },
+  fileName: { color: '#7A1A1A', fontSize: 14, fontWeight: '600' },
+  previewContainer: { marginTop: 10, alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 12, padding: 15, borderWidth: 1, borderColor: '#e2e8f0' },
+  previewImageContainer: { width: '100%', height: 200 },
+  previewImage: { width: '100%', height: 200 },
+  previewInfo: { marginTop: 10, alignItems: 'center' },
+  previewMeta: { marginTop: 4, fontSize: 12, color: '#64748b' },
+  footer: { position: 'absolute', bottom: 25, left: 25, right: 25, flexDirection: 'row', justifyContent: 'space-between', paddingTop: 15, backgroundColor: 'white' },
   button: { flex: 1, padding: 15, borderRadius: 8, alignItems: 'center', marginHorizontal: 5 },
   buttonPrimary: { backgroundColor: '#7A1A1A' },
   buttonDisabled: { backgroundColor: '#ced4da' },

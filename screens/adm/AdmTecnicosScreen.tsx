@@ -1,16 +1,19 @@
 import { Feather } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
 import { Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { buildTechniciansFromServices, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, type AdminTechnicianData } from '../../components/shared/admin/adminApi';
+import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, type AdminDashboardData, type AdminTechnicianData } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
+import { statusBadgeColorByCode, statusLabelByCode } from './components/constants';
+import { formatOrdemServicoLabel, formatPedidoLabel } from './components/utils';
 
 type Tecnico = AdminTechnicianData;
 
 export default function AdmTecnicosScreen() {
+  const navigation = useNavigation();
   const [selectedTecnico, setSelectedTecnico] = useState<Tecnico | null>(null);
   const [tecnicos, setTecnicos] = useState<Tecnico[]>([]);
   const [overview, setOverview] = useState({ aguardando: 0, atribuidos: 0, concluidos: 0, total: 0 });
@@ -18,15 +21,17 @@ export default function AdmTecnicosScreen() {
 
   const loadTecnicos = useCallback(async () => {
     try {
-      const [services, tecnicoUsers] = await Promise.all([
-        fetchAdminServicesFromApi(),
+      const [services, tecnicoUsers, dashData] = await Promise.all([
+        fetchAdminServicesAllFromApi(),
         fetchAdminTecnicosFromApi(),
+        fetchAdminDashboardFromApi(),
       ]);
 
       const fromServices = buildTechniciansFromServices(services);
       const normalizeName = (value: string) => String(value || '').trim().toLowerCase();
       const serviceStatsByName = new Map(fromServices.map((item) => [normalizeName(item.nome), item]));
 
+      // Filtra apenas técnicos realmente cadastrados (presentes em tecnicoUsers)
       const merged = tecnicoUsers.map((tecnico) => {
         const stats = serviceStatsByName.get(normalizeName(tecnico.nome));
         return {
@@ -43,33 +48,20 @@ export default function AdmTecnicosScreen() {
           total: stats?.total || 0,
           ativos: stats?.ativos || 0,
           concluidos: stats?.concluidos || 0,
+          endereco: stats?.endereco,
           observacoes: stats?.observacoes || 'Cadastro retornado pela API administrativa.',
           atendimentos: stats?.atendimentos || [],
         } satisfies Tecnico;
       });
 
-      const semCadastro = fromServices.filter(
-        (item) => !tecnicoUsers.some((tecnico) => normalizeName(tecnico.nome) === normalizeName(item.nome))
-      );
-
-      const combined = [...merged, ...semCadastro];
-      const uniqueTecnicos = combined.filter((item, index, array) => {
-        const id = String(item.id || '').trim();
-        if (id) {
-          return array.findIndex((candidate) => String(candidate.id || '').trim() === id) === index;
-        }
-
-        const nameKey = normalizeName(item.nome);
-        return array.findIndex((candidate) => normalizeName(candidate.nome) === nameKey) === index;
-      });
-
-      setTecnicos(uniqueTecnicos);
+      // Não inclui técnicos "sem cadastro" (apenas presentes nos serviços, mas não no banco)
+      setTecnicos(merged);
       setLoadError(null);
       setOverview({
-        aguardando: services.filter((service) => service.status === 'aguardando').length,
-        atribuidos: services.filter((service) => service.status === 'atribuido').length,
-        concluidos: services.filter((service) => service.status === 'concluido').length,
-        total: services.length,
+        aguardando: dashData.resumo.aguardando,
+        atribuidos: dashData.resumo.atribuidos,
+        concluidos: dashData.resumo.concluidos,
+        total: dashData.resumo.total,
       });
     } catch (error) {
       console.warn('Erro ao carregar tecnicos admin:', error);
@@ -96,9 +88,10 @@ export default function AdmTecnicosScreen() {
   const totalGeral = overview.total;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <AdminHeader />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+      <View style={styles.container}>
+        <AdminHeader />
 
       <ScrollView
         style={styles.content}
@@ -156,6 +149,7 @@ export default function AdmTecnicosScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+      </View>
 
       <Modal
         visible={selectedTecnico !== null}
@@ -164,8 +158,9 @@ export default function AdmTecnicosScreen() {
         onRequestClose={() => setSelectedTecnico(null)}
       >
         {selectedTecnico ? (
-          <SafeAreaView style={styles.detailContainer}>
-            <StatusBar barStyle="light-content" />
+          <SafeAreaView style={styles.detailSafeArea}>
+            <StatusBar barStyle="light-content" backgroundColor="#2a0000" />
+            <View style={styles.detailContainer}>
 
             <View style={styles.detailHeader}>
               <TouchableOpacity
@@ -203,6 +198,12 @@ export default function AdmTecnicosScreen() {
                   <Feather name="credit-card" size={16} color="#64748b" />
                   <Text style={styles.detailInfoText}>CPF: {selectedTecnico.cpf}</Text>
                 </View>
+                {selectedTecnico.endereco && (
+                  <View style={styles.detailInfoRow}>
+                    <Feather name="map-pin" size={16} color="#64748b" />
+                    <Text style={styles.detailInfoText}>{selectedTecnico.endereco}</Text>
+                  </View>
+                )}
               </View>
 
               <View style={styles.metricsRow}>
@@ -228,19 +229,50 @@ export default function AdmTecnicosScreen() {
               <View style={styles.detailCard}>
                 <Text style={styles.detailSectionTitle}>Atendimentos</Text>
                 {selectedTecnico.atendimentos.map((item) => (
-                  <View key={item.id} style={styles.serviceRow}>
-                    <View style={styles.serviceRowTop}>
-                      <Text style={styles.serviceClient}>{item.cliente}</Text>
-                      <Text style={[
-                        styles.serviceBadge,
-                        item.status === 'Concluido' ? styles.serviceBadgeBlue : item.status === 'Em andamento' ? styles.serviceBadgeGreen : styles.serviceBadgeYellow,
-                      ]}>
-                        {item.status}
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.orderCard, { backgroundColor: '#fff', borderLeftWidth: 4, borderLeftColor: (statusBadgeColorByCode as any)[item.status] || '#d1d5db' }]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setSelectedTecnico(null);
+                      (navigation as any).navigate('Pedidos', { selectedServiceId: item.id, fromTab: 'Tecnicos' });
+                    }}
+                  >
+                    <View style={styles.orderTopRow}>
+                      <View style={styles.orderIdentityRow}>
+                        <Text style={styles.orderId}>{formatPedidoLabel(item.numeroPedido)}</Text>
+                        {item.numeroOrdemServico ? (
+                          <View style={styles.osBadge}>
+                            <Text style={styles.osBadgeText}>{formatOrdemServicoLabel(item.numeroOrdemServico)}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={[styles.orderBadge, { backgroundColor: (statusBadgeColorByCode as any)[item.status] }]}>
+                        {(statusLabelByCode as any)[item.status]}
                       </Text>
                     </View>
-                    <Text style={styles.serviceDescription}>{formatLockDisplayName(item.servico)}</Text>
-                    <Text style={styles.serviceMeta}>{item.data} as {item.hora}</Text>
-                  </View>
+
+                    <Text style={styles.clientName}>{item.cliente}</Text>
+
+                    <View style={styles.infoRow}>
+                      <Feather name="phone" size={16} color="#16a34a" />
+                      <Text style={styles.infoText}>{item.telefone || 'Telefone nao informado'}</Text>
+                    </View>
+
+                    <View style={styles.infoRow}>
+                      <Feather name="map-pin" size={16} color="#ef4444" />
+                      <Text style={styles.infoText}>{item.endereco}</Text>
+                    </View>
+
+                    <View style={styles.infoRow}>
+                      <Feather name="clock" size={16} color="#64748b" />
+                      <Text style={styles.infoText}>{(item.data && item.data !== '--/--/--' ? item.data : (item.dataConclusao || '--/--/--'))} as {(item.hora && item.hora !== '--:--' ? item.hora : (item.horaConclusao || '--:--'))}</Text>
+                    </View>
+
+                    <View style={styles.descriptionBox}>
+                      <Text style={styles.descriptionText}>{formatLockDisplayName(item.servico)}</Text>
+                    </View>
+                  </TouchableOpacity>
                 ))}
               </View>
 
@@ -252,6 +284,7 @@ export default function AdmTecnicosScreen() {
                 <Text style={styles.closeDetailButtonText}>Fechar</Text>
               </TouchableOpacity>
             </ScrollView>
+            </View>
           </SafeAreaView>
         ) : null}
       </Modal>
@@ -260,13 +293,17 @@ export default function AdmTecnicosScreen() {
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#7A1A1A',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f0f2f5',
   },
   content: {
     flex: 1,
-    marginTop: -4,
+    marginTop: 22,
   },
   contentContainer: {
     padding: 16,
@@ -364,6 +401,10 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     fontSize: 14,
     textAlign: 'center',
+  },
+  detailSafeArea: {
+    flex: 1,
+    backgroundColor: '#2a0000',
   },
   detailContainer: {
     flex: 1,
@@ -546,5 +587,91 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 16,
     fontWeight: '700',
+  },
+  orderCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#d7dbe0',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  orderTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  orderIdentityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  orderId: {
+    color: '#5b1111',
+    fontWeight: '700',
+    fontSize: 13,
+    backgroundColor: '#f8e9de',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 24,
+    borderRadius: 8,
+    textAlignVertical: 'center',
+  },
+  osBadge: {
+    backgroundColor: '#fff3c4',
+    borderWidth: 1,
+    borderColor: '#f3d36b',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 24,
+    justifyContent: 'center',
+  },
+  osBadgeText: {
+    color: '#8a5a00',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  orderBadge: {
+    color: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    fontWeight: '700',
+    fontSize: 12.5,
+  },
+  clientName: {
+    color: '#0f172a',
+    fontSize: 34 / 1.5,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+    gap: 7,
+  },
+  infoText: {
+    color: '#334155',
+    fontSize: 14,
+    flex: 1,
+  },
+  descriptionBox: {
+    backgroundColor: '#f0f1f4',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 8,
+  },
+  descriptionText: {
+    color: '#1e293b',
+    fontSize: 27 / 1.5,
+    lineHeight: 22,
   },
 });

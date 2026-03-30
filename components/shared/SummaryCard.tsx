@@ -15,7 +15,7 @@ type SummaryCardProps = {
 export default function SummaryCard({ title, items }: SummaryCardProps) {
   return (
     <View style={styles.summaryCard}>
-      <Text style={styles.summaryTitle}>{title}</Text>
+      {title ? <Text style={styles.summaryTitle}>{title}</Text> : null}
       <View style={styles.summaryStats}>
         {items.map((item) => (
           <View key={item.label} style={styles.stat}>

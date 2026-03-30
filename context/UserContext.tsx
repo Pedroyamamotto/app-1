@@ -1,20 +1,43 @@
-import React, { createContext, useState, useContext } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
-const UserContext = createContext(null);
+const UserContext = createContext<any>(null);
 
-export const UserProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+export const UserProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // A função de logout agora vive no contexto.
-  // Sua única responsabilidade é limpar o estado do usuário.
-  const logout = () => {
-    setUser(null);
+  useEffect(() => {
+    const loadSession = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('@user_session');
+        if (stored) {
+          setUser(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.error('Erro ao ler a sessão:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadSession();
+  }, []);
+
+  const saveUser = async (userData: any) => {
+    setUser(userData);
+    if (userData) {
+      await AsyncStorage.setItem('@user_session', JSON.stringify(userData));
+    }
   };
 
-  // Exponha a nova função de logout junto com o estado do usuário e a função setUser.
-  // setUser ainda é necessário para o processo de login.
+  // A função de logout agora vive no contexto e limpa do AsyncStorage.
+  const logout = async () => {
+    setUser(null);
+    await AsyncStorage.removeItem('@user_session');
+  };
+
   return (
-    <UserContext.Provider value={{ user, setUser, logout }}>
+    <UserContext.Provider value={{ user, setUser, saveUser, logout, isLoading }}>
       {children}
     </UserContext.Provider>
   );
