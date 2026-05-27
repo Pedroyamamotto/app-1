@@ -2,7 +2,7 @@
   "expo": {
     "name": "ServiYama",
     "slug": "yamaservios",
-    "version": "3.0.0",
+    "version": "3.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "serviyama",
@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.yamamotto.yamaservios",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",

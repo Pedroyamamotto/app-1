@@ -20,5 +20,12 @@
         "simulator": true
       }
     }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
+      }
+    }
   }
 }

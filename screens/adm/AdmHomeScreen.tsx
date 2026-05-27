@@ -7,7 +7,7 @@ import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageZoomModal from '../../components/ImageZoomModal';
 import PhotoUploadModal from '../../components/PhotoUploadModal';
-import { assignAdminService, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, type AdminDashboardData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+import { assignAdminService, createAdminServiceRequest, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, type AdminDashboardData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import StandardImage from '../../components/StandardImage';
@@ -51,7 +51,14 @@ const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
 
 
 const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
-  const { user } = useUser() as unknown as { user: { typeUser?: string } | null };
+  const { user } = useUser() as unknown as {
+    user: {
+      typeUser?: string;
+      email?: string;
+      name?: string;
+      userId?: string;
+    } | null;
+  };
   const canUploadContextPhoto = String(user?.typeUser || '').toLowerCase() === 'admin';
   const route = useRoute();
   const navigation = useNavigation();
@@ -182,7 +189,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
         };
         console.log('[DEBUG handleSaveEdit] PUT /servicos payload (só nome):', payload);
         const res = await fetch(
-          `https://apibling-z8wn.onrender.com/api/servicos/editar-completo/${encodeURIComponent(pedidoId)}`,
+          `https://api-bling-990709313938.us-central1.run.app/api/servicos/editar-completo/${encodeURIComponent(pedidoId)}`,
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -216,7 +223,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
 
       console.log('[DEBUG handleSaveEdit] PUT /servicos payload:', payload);
       const res = await fetch(
-        `https://apibling-z8wn.onrender.com/api/servicos/editar-completo/${encodeURIComponent(pedidoId)}`,
+        `https://api-bling-990709313938.us-central1.run.app/api/servicos/editar-completo/${encodeURIComponent(pedidoId)}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -336,6 +343,18 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
         tecnicoId: atribuirForm.tecnicoId,
         dataAgendada: atribuirForm.data,
         horaAgendada: atribuirForm.hora,
+      }, {
+        numeroPedido: atribuirTarget.numeroPedido,
+        descricao: atribuirTarget.descricao,
+        cliente: atribuirTarget.cliente,
+        telefone: atribuirTarget.telefone,
+        endereco: atribuirTarget.endereco,
+        tecnicoNome: tecnicoAtribuidoSelecionado?.nome,
+        tecnicoEmail: tecnicoAtribuidoSelecionado?.email,
+        tecnicoTelefone: tecnicoAtribuidoSelecionado?.telefone,
+        assignedByEmail: user?.email,
+        assignedByName: user?.name,
+        assignedById: user?.userId,
       });
       setAtribuirVisible(false);
       setAtribuirTarget(null);
@@ -377,6 +396,9 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
         tecnicoNome: tecnicoReagendarSelecionado?.nome,
         tecnicoEmail: tecnicoReagendarSelecionado?.email,
         tecnicoTelefone: tecnicoReagendarSelecionado?.telefone,
+        assignedByEmail: user?.email,
+        assignedByName: user?.name,
+        assignedById: user?.userId,
       });
       setReagendarVisible(false);
       setSelectedNaoRealizado(null);
@@ -420,6 +442,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [draftFilters, setDraftFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [newServiceForm, setNewServiceForm] = useState<NewServiceForm>(DEFAULT_NEW_SERVICE_FORM);
+  const [isCreatingService, setIsCreatingService] = useState(false);
 
   const openFilterModal = () => {
     setDraftFilters(appliedFilters);
@@ -463,15 +486,79 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     setNewServiceForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleCreateService = () => {
-    if (!newServiceForm.nomeCompleto.trim() || !newServiceForm.descricao.trim()) {
+  const parseVisitDateTime = (value: string) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) {
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      return {
+        dataAgendadaIso: tomorrow.toISOString().slice(0, 10),
+        horaAgendada: '09:00',
+      };
+    }
+
+    const match = trimmed.match(/(\d{1,2})\/(\d{1,2})\/(\d{4}).*?(\d{1,2}):(\d{2})/);
+    if (!match) {
+      const onlyDate = trimmed.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (!onlyDate) return null;
+      const [, d, m, y] = onlyDate;
+      return {
+        dataAgendadaIso: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`,
+        horaAgendada: '09:00',
+      };
+    }
+
+    const [, d, m, y, h, min] = match;
+    return {
+      dataAgendadaIso: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`,
+      horaAgendada: `${h.padStart(2, '0')}:${min}`,
+    };
+  };
+
+  const handleCreateService = async () => {
+    if (
+      !newServiceForm.nomeCompleto.trim() ||
+      !newServiceForm.telefone.trim() ||
+      !newServiceForm.cep.trim() ||
+      !newServiceForm.email.trim() ||
+      !newServiceForm.endereco.trim() ||
+      !newServiceForm.descricao.trim()
+    ) {
+      Alert.alert('Campos obrigatorios', 'Preencha nome, telefone, CEP, e-mail, endereco e descricao.');
       return;
     }
 
-    Alert.alert(
-      'Cadastro indisponivel',
-      'O app nao cria mais pedidos ficticios localmente. Para cadastrar pedidos reais, esta acao precisa ser ligada a um endpoint de criacao no backend.'
-    );
+    const schedule = parseVisitDateTime(newServiceForm.dataHoraVisita);
+    if (!schedule) {
+      Alert.alert('Data invalida', 'Use o formato dd/mm/aaaa hh:mm ou deixe em branco para agendar automaticamente.');
+      return;
+    }
+
+    const selectedTecnico = tecnicosApi.find((tecnico) => tecnico.nome === newServiceForm.tecnicoResponsavel) || null;
+    const tecnicoId = selectedTecnico && newServiceForm.tecnicoResponsavel !== 'Selecionar depois' ? selectedTecnico.id : undefined;
+
+    try {
+      setIsCreatingService(true);
+      await createAdminServiceRequest({
+        nomeCompleto: newServiceForm.nomeCompleto.trim(),
+        telefone: newServiceForm.telefone.trim(),
+        email: newServiceForm.email.trim(),
+        cep: newServiceForm.cep.trim(),
+        endereco: newServiceForm.endereco.trim(),
+        descricao: newServiceForm.descricao.trim(),
+        observacoes: newServiceForm.observacoes.trim() || undefined,
+        dataAgendadaIso: schedule.dataAgendadaIso,
+        horaAgendada: schedule.horaAgendada,
+        tecnicoId,
+      });
+
+      closeCreateModal();
+      await loadAdminServices();
+      Alert.alert('Pedido criado', 'Cadastro realizado com sucesso.');
+    } catch (error) {
+      Alert.alert('Falha ao criar pedido', error instanceof Error ? error.message : 'Nao foi possivel criar o pedido.');
+    } finally {
+      setIsCreatingService(false);
+    }
   };
 
   const loadAdminServices = useCallback(async () => {
@@ -1056,9 +1143,9 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
 
               <View style={styles.createDivider} />
 
-              <TouchableOpacity style={styles.createButton} activeOpacity={0.9} onPress={handleCreateService}>
+              <TouchableOpacity style={[styles.createButton, isCreatingService && { opacity: 0.7 }]} activeOpacity={0.9} onPress={handleCreateService} disabled={isCreatingService}>
                 <Feather name="check-circle" size={18} color="#fff" />
-                <Text style={styles.createButtonText}>Criar Pedido</Text>
+                <Text style={styles.createButtonText}>{isCreatingService ? 'Criando...' : 'Criar Pedido'}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.cancelCreateButton} activeOpacity={0.9} onPress={closeCreateModal}>

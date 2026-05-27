@@ -110,6 +110,9 @@ type AssignAdminServiceMetadata = {
   tecnicoNome?: string;
   tecnicoEmail?: string;
   tecnicoTelefone?: string;
+  assignedByEmail?: string;
+  assignedByName?: string;
+  assignedById?: string;
 };
 
 type UploadServiceContextPhotoPayload = {
@@ -118,8 +121,18 @@ type UploadServiceContextPhotoPayload = {
   fileName?: string;
 };
 
-const N8N_WEBHOOK_TEST = 'https://yamamotto-dev.app.n8n.cloud/webhook-test/Receber';
-const N8N_WEBHOOK_PROD = 'https://yamamotto-dev.app.n8n.cloud/webhook/Receber';
+type CreateAdminServiceRequestPayload = {
+  nomeCompleto: string;
+  telefone: string;
+  email: string;
+  cep: string;
+  endereco: string;
+  descricao: string;
+  observacoes?: string;
+  dataAgendadaIso: string;
+  horaAgendada: string;
+  tecnicoId?: string;
+};
 
 const normalizeServices = (payload: unknown): any[] => {
   const asAny = payload as any;
@@ -204,20 +217,6 @@ const adminHeaders = () => {
 };
 
 const readJsonSafely = async (res: Response) => res.json().catch(() => ({}));
-
-const postJson = async (url: string, payload: Record<string, unknown>) => {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Webhook ${url} respondeu HTTP ${response.status}`);
-  }
-};
 
 const throwIfNotOk = async (res: Response, fallbackMessage: string) => {
   if (res.ok) return;
@@ -790,10 +789,18 @@ export async function assignAdminService(
   metadata?: AssignAdminServiceMetadata
 ): Promise<void> {
   const dataAgendadaIso = parseBrDateToIso(payload.dataAgendada) || payload.dataAgendada;
+  const assignedByEmail = String(metadata?.assignedByEmail || '').trim();
+  const assignedByName = String(metadata?.assignedByName || '').trim();
+  const assignedById = String(metadata?.assignedById || '').trim();
 
   const res = await apiFetch(`/api/services/${serviceId}/admin/atribuir`, {
     method: 'PATCH',
-    headers: adminHeaders(),
+    headers: {
+      ...adminHeaders(),
+      ...(assignedByEmail ? { 'x-user-email': assignedByEmail } : {}),
+      ...(assignedByName ? { 'x-user-name': assignedByName } : {}),
+      ...(assignedById ? { 'x-user-id': assignedById } : {}),
+    },
     body: JSON.stringify({
       tecnico_id: payload.tecnicoId,
       data_agendada: dataAgendadaIso,
@@ -803,37 +810,119 @@ export async function assignAdminService(
   });
 
   await throwIfNotOk(res, 'Nao foi possivel atribuir tecnico ao servico');
+}
 
-  const n8nPayload = {
-    event: 'service_assigned',
-    source: 'app-admin',
-    serviceId,
-    numeroPedido: metadata?.numeroPedido || serviceId,
-    descricao: metadata?.descricao || 'Servico',
-    cliente: metadata?.cliente || 'Cliente nao informado',
-    telefone: metadata?.telefone || null,
-    endereco: metadata?.endereco || 'Endereco nao informado',
-    tecnicoId: payload.tecnicoId,
-    tecnicoNome: metadata?.tecnicoNome || 'Tecnico nao informado',
-    tecnicoEmail: metadata?.tecnicoEmail || null,
-    tecnicoTelefone: metadata?.tecnicoTelefone || null,
-    dataAgendada: payload.dataAgendada,
-    dataAgendadaIso,
-    horaAgendada: payload.horaAgendada,
-    observacoes: payload.observacoes || null,
-    status: 'atribuido',
-    assignedAt: new Date().toISOString(),
-  };
+const extractAddressParts = (enderecoCompleto: string) => {
+  const raw = String(enderecoCompleto || '').trim();
+  const semCep = raw.replace(/\b\d{5}-?\d{3}\b/g, '').trim();
+  const principal = semCep.split('-')[0]?.trim() || semCep;
+  const sufixo = semCep.includes('-') ? semCep.split('-').slice(1).join('-').trim() : '';
 
-  const webhookResults = await Promise.allSettled([
-    postJson(N8N_WEBHOOK_TEST, n8nPayload),
-    postJson(N8N_WEBHOOK_PROD, n8nPayload),
-  ]);
+  const ruaNumero = principal.split(',').map((p) => p.trim()).filter(Boolean);
+  const rua = ruaNumero[0] || principal || 'Endereco nao informado';
+  const numeroEncontrado = principal.match(/\b\d+[a-zA-Z]?\b/)?.[0] || '';
+  const numero = ruaNumero[1] || numeroEncontrado || 'S/N';
 
-  const webhookFailures = webhookResults.filter((result) => result.status === 'rejected');
-  if (webhookFailures.length > 0) {
-    console.warn('Falha ao enviar atribuicao para n8n:', webhookFailures);
+  const bairroCidade = sufixo.split(',').map((p) => p.trim()).filter(Boolean);
+  const bairro = bairroCidade[0] || 'Nao informado';
+  const cidade = bairroCidade[1] || 'Sao Paulo';
+  const estado = bairroCidade[2] || 'SP';
+
+  return { rua, numero, bairro, cidade, estado };
+};
+
+const safeDigits = (value: string) => String(value || '').replace(/\D/g, '');
+
+export async function createAdminServiceRequest(payload: CreateAdminServiceRequestPayload): Promise<{ serviceId: string }> {
+  const nowSeed = Date.now();
+  const uniqueSeed = String(nowSeed).slice(-8);
+  const numeroPedido = `APP-${uniqueSeed}`;
+  const blingPvId = `APP-PV-${uniqueSeed}`;
+
+  const enderecoParts = extractAddressParts(payload.endereco);
+  const cepDigits = safeDigits(payload.cep);
+  const cpfDigits = String(nowSeed).padStart(11, '0').slice(-11);
+
+  const clienteRes = await apiFetch('/api/clientes', {
+    method: 'POST',
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      nome: payload.nomeCompleto,
+      telefone: payload.telefone,
+      email: payload.email,
+      cpf: cpfDigits,
+      cep: cepDigits || payload.cep,
+      rua: enderecoParts.rua,
+      numero: enderecoParts.numero,
+      bairro: enderecoParts.bairro,
+      cidade: enderecoParts.cidade,
+      estado: enderecoParts.estado,
+    }),
+  });
+  await throwIfNotOk(clienteRes, 'Nao foi possivel criar cliente');
+  const clientePayload = await readJsonSafely(clienteRes);
+  const clienteId = normalizeMongoId((clientePayload as any)?.clienteId || (clientePayload as any)?._id || (clientePayload as any)?.id);
+
+  if (!clienteId) {
+    throw new Error('API nao retornou clienteId ao criar cliente');
   }
+
+  const pedidoRes = await apiFetch('/api/pedidos', {
+    method: 'POST',
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      bling_pv_id: blingPvId,
+      cliente_id: clienteId,
+      modelo_produto: payload.descricao,
+      tipo_servico: 'instalacao',
+      tem_instalacao: true,
+      observacoes: payload.observacoes || null,
+    }),
+  });
+  await throwIfNotOk(pedidoRes, 'Nao foi possivel criar pedido');
+  const pedidoPayload = await readJsonSafely(pedidoRes);
+  const pedidoId = normalizeMongoId((pedidoPayload as any)?.pedidoId || (pedidoPayload as any)?._id || (pedidoPayload as any)?.id);
+
+  if (!pedidoId) {
+    throw new Error('API nao retornou pedidoId ao criar pedido');
+  }
+
+  const servicoRes = await apiFetch('/api/services', {
+    method: 'POST',
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      numero_pedido: numeroPedido,
+      pedido_id: pedidoId,
+      cliente_id: clienteId,
+      descricao_servico: payload.descricao,
+      observacoes: payload.observacoes || null,
+      data_agendada: payload.dataAgendadaIso,
+      hora_agendada: payload.horaAgendada,
+      status: 'aguardando',
+    }),
+  });
+  await throwIfNotOk(servicoRes, 'Nao foi possivel criar servico');
+  const servicoPayload = await readJsonSafely(servicoRes);
+  const serviceId = normalizeMongoId((servicoPayload as any)?.serviceId || (servicoPayload as any)?._id || (servicoPayload as any)?.id);
+
+  if (!serviceId) {
+    throw new Error('API nao retornou serviceId ao criar servico');
+  }
+
+  if (payload.tecnicoId) {
+    await assignAdminService(
+      serviceId,
+      {
+        tecnicoId: payload.tecnicoId,
+        dataAgendada: payload.dataAgendadaIso,
+        horaAgendada: payload.horaAgendada,
+        observacoes: payload.observacoes,
+      },
+      undefined
+    );
+  }
+
+  return { serviceId };
 }
 
 export async function uploadAdminServiceContextPhoto(

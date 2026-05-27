@@ -13,22 +13,6 @@ const LoginSchema = Yup.object().shape({
   password: Yup.string().required('A senha é obrigatória'),
 });
 
-const applyMaskedPasswordInput = (typedValue: string, currentPassword: string) => {
-  const typed = String(typedValue || '');
-  const current = String(currentPassword || '');
-
-  if (typed.length < current.length) {
-    return current.slice(0, typed.length);
-  }
-
-  if (typed.length === current.length) {
-    return current;
-  }
-
-  const appended = typed.slice(current.length).replace(/\*/g, '');
-  return `${current}${appended}`;
-};
-
 export default function LoginScreen() {
   const navigation = useNavigation<any>();
   const { saveUser } = useUser();
@@ -40,7 +24,7 @@ export default function LoginScreen() {
 
   const handleLogin = async (values, { setSubmitting }) => {
     const normalizedEmail = String(values.email || '').trim().toLowerCase();
-    const trimmedPassword = String(values.password || '').trim();
+    const passwordValue = String(values.password || '');
 
     try {
       const response = await apiFetch('/api/users/login', {
@@ -50,14 +34,14 @@ export default function LoginScreen() {
         },
         body: JSON.stringify({
           email: normalizedEmail,
-          password: trimmedPassword,
+          password: passwordValue,
         }),
       });
 
       const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
-        const isKnownAdminCredential = normalizedEmail === ADMIN_EMAIL && trimmedPassword === ADMIN_PASSWORD;
+        const isKnownAdminCredential = normalizedEmail === ADMIN_EMAIL && passwordValue === ADMIN_PASSWORD;
 
         const token =
           data?.access ||
@@ -119,12 +103,13 @@ export default function LoginScreen() {
       <StatusBar barStyle="dark-content" backgroundColor="#f0f2f5" />
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
           <Formik
@@ -134,7 +119,7 @@ export default function LoginScreen() {
             validateOnBlur={false}
             validateOnChange={false}
           >
-            {({ handleChange, handleBlur, handleSubmit, values, errors, isSubmitting, submitCount, setFieldValue }) => (
+            {({ handleChange, handleBlur, handleSubmit, values, errors, isSubmitting, submitCount }) => (
               <View style={styles.content}>
                 <View style={styles.logoWrapper}>
                   <Image
@@ -168,14 +153,11 @@ export default function LoginScreen() {
                       placeholder="Sua senha"
                       autoCorrect={false}
                       autoCapitalize="none"
-                      value={isPasswordVisible ? values.password : '*'.repeat(String(values.password || '').length)}
-                      onChangeText={(text) => {
-                        if (isPasswordVisible) {
-                          handleChange('password')(text);
-                          return;
-                        }
-                        setFieldValue('password', applyMaskedPasswordInput(text, values.password));
-                      }}
+                      autoComplete="password"
+                      textContentType="password"
+                      secureTextEntry={!isPasswordVisible}
+                      value={values.password}
+                      onChangeText={handleChange('password')}
                       onBlur={handleBlur('password')}
                     />
                     <TouchableOpacity onPress={() => setIsPasswordVisible(!isPasswordVisible)}>
@@ -216,9 +198,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: 32,
   },
   content: {
     paddingHorizontal: 35,
+    paddingBottom: Platform.OS === 'android' ? 96 : 24,
   },
   logoWrapper: {
     alignItems: 'center',

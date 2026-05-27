@@ -1,5 +1,5 @@
 
-const API_BASE_URL = 'https://apibling-z8wn.onrender.com';
+const API_BASE_URL = 'https://api-bling-990709313938.us-central1.run.app';
 const ADMIN_API_KEY = 'ak_live_2026_Yama_9rT4mN7qX2pL6vK1';
 
 async function diagnose() {
