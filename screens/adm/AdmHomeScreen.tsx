@@ -12,6 +12,7 @@ import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import StandardImage from '../../components/StandardImage';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
+import { apiFetch } from '../../constants/api';
 import { useUser } from '../../context/UserContext';
 import type { AdminService, ChecklistItem, DropdownKey, FilterState, NaoRealizadoDetail, NewServiceForm, ReagendarForm, ServiceDetail, UploadedPhoto } from './components/types';
 
@@ -265,8 +266,28 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     return `foto.${extByMime[mimeType] || 'jpg'}`;
   };
 
-  const openAdicionarImagemModal = (item: AdminService) => {
-    setAdicionarImagemTarget(item);
+
+  const fetchServiceFullData = async (serviceId: string) => {
+    try {
+      const res = await apiFetch(`/api/services/${serviceId}`);
+      const data = await res.json().catch(() => ({}));
+
+      return data?.service || data?.data || data;
+    } catch (error) {
+      console.warn('Erro ao buscar serviço completo:', error);
+      return null;
+    }
+  };
+
+  const openAdicionarImagemModal = async (item: AdminService) => {
+    const fullService = await fetchServiceFullData(String(item.id));
+
+    setAdicionarImagemTarget({
+      ...item,
+      ...(fullService || {}),
+      id: item.id,
+    } as AdminService);
+
     setAdicionarImagemPhotos([]);
     setIsAdicionarPickerVisible(false);
     setAdicionarImagemVisible(true);
@@ -321,8 +342,15 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     }
   };
 
-  const openAtribuirModal = (item: AdminService) => {
-    setAtribuirTarget(item);
+  const openAtribuirModal = async (item: AdminService) => {
+    const fullService = await fetchServiceFullData(String(item.id));
+
+    setAtribuirTarget({
+      ...item,
+      ...(fullService || {}),
+      id: item.id,
+    } as AdminService);
+
     setAtribuirForm({ tecnicoId: item.tecnicoId || '', data: '', hora: '' });
     setIsAtribuirTecnicoOpen(false);
     setShowAtribuirCal(false);
@@ -410,27 +438,39 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     }
   };
 
-  const openDetailModal = (item: AdminService) => {
-    const checklistFromApi: ChecklistItem[] = Array.isArray(item.checklist)
-      ? item.checklist.map((check, idx) => ({
-          id: `${item.id}-check-${idx}`,
+  const openDetailModal = async (item: AdminService) => {
+    const fullService = await fetchServiceFullData(String(item.id));
+
+    const mergedItem = {
+      ...item,
+      ...(fullService || {}),
+      id: item.id,
+    } as AdminService;
+
+    const checklistFromApi: ChecklistItem[] = Array.isArray((mergedItem as any).checklist)
+      ? (mergedItem as any).checklist.map((check: any, idx: number) => ({
+          id: `${mergedItem.id}-check-${idx}`,
           label: String(check.item || `Item ${idx + 1}`),
           done: Boolean(check.status),
         }))
       : [];
 
     setSelectedService({
-      ...item,
+      ...(mergedItem as any),
       checklist: checklistFromApi,
-      comprovanteUri: item.comprovanteUri,
+      comprovanteUri: (mergedItem as any).comprovanteUri || item.comprovanteUri,
     });
   };
 
-  const openNaoRealizadoModal = (item: AdminService) => {
+  const openNaoRealizadoModal = async (item: AdminService) => {
+    const fullService = await fetchServiceFullData(String(item.id));
+
     setSelectedNaoRealizado({
       ...item,
-      motivoCompleto: item.motivo ?? 'Motivo nao informado.',
-    });
+      ...(fullService || {}),
+      id: item.id,
+      motivoCompleto: item.motivo ?? fullService?.nao_realizado_motivo ?? 'Motivo nao informado.',
+    } as NaoRealizadoDetail);
   };
   const [isAssignDropdownOpen, setIsAssignDropdownOpen] = useState(false);
   const [services, setServices] = useState<AdminService[]>([]);
@@ -680,6 +720,54 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
       return matchesStatus && matchesTecnico && matchesPeriodoFilter && matchesSearch;
     });
   }, [appliedFilters, searchQuery, services]);
+
+
+  const renderPaymentInfo = (item: any) => {
+    const descricaoPagamento = String(item?.descricao_pagamento || '')
+      .replace(/pix/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const valor = item?.valor;
+
+    return (
+      <>
+        <View style={styles.detailDivider} />
+
+        <View style={styles.paymentInfoRow}>
+          <Text style={styles.paymentInfoLabel}>Forma de Pagamento</Text>
+          <Text style={styles.paymentInfoValue}>{item?.forma_de_pagamento || '-'}</Text>
+        </View>
+
+        <View style={styles.paymentInfoRow}>
+          <Text style={styles.paymentInfoLabel}>Descrição</Text>
+          <Text style={styles.paymentInfoValue}>{descricaoPagamento || '-'}</Text>
+        </View>
+
+        <View style={styles.paymentInfoRow}>
+          <Text style={styles.paymentInfoLabel}>Chave</Text>
+          <Text style={styles.paymentInfoValue}>{item?.chaveDePagamento || '-'}</Text>
+        </View>
+
+        <View style={styles.paymentInfoRow}>
+          <Text style={styles.paymentInfoLabel}>Valor</Text>
+          <Text style={styles.paymentInfoValue}>
+            {valor || valor === 0
+              ? Number(valor).toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                })
+              : '-'}
+          </Text>
+        </View>
+
+        <View style={styles.paymentInfoRow}>
+          <Text style={styles.paymentInfoLabel}>Observações</Text>
+          <Text style={styles.paymentInfoValue}>{item?.observacoes || '-'}</Text>
+        </View>
+      </>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1312,6 +1400,8 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                   <Text style={styles.detailServiceLabel}>Servico:</Text>
                   <Text style={[styles.detailServiceDesc, { color: '#1e293b' }]}>{formatLockDisplayName(selectedNaoRealizado.descricao)}</Text>
                 </View>
+
+                {renderPaymentInfo(selectedNaoRealizado)}
               </View>
 
               {/* Motivo */}
@@ -1401,6 +1491,8 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                   <Text style={styles.detailServiceLabel}>Servico:</Text>
                   <Text style={styles.detailServiceDesc}>{formatLockDisplayName(atribuirTarget.descricao)}</Text>
                 </View>
+
+                {renderPaymentInfo(atribuirTarget)}
               </View>
 
               <View style={styles.detailSectionHeader}>
@@ -1667,6 +1759,8 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                   <Text style={styles.detailServiceLabel}>Servico:</Text>
                   <Text style={styles.detailServiceDesc}>{formatLockDisplayName(adicionarImagemTarget.descricao)}</Text>
                 </View>
+
+                {renderPaymentInfo(adicionarImagemTarget)}
               </View>
 
               <Text style={styles.atribuirFieldLabel}>Foto da Porta do Cliente (Opcional)</Text>
@@ -1978,6 +2072,8 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                   <Text style={styles.detailServiceLabel}>Servico:</Text>
                   <Text style={styles.detailServiceDesc}>{formatLockDisplayName(selectedService.descricao)}</Text>
                 </View>
+
+                {renderPaymentInfo(selectedService)}
 
                 <View style={styles.detailDivider} />
                 <Text style={styles.detailConclusaoText}>
@@ -3216,6 +3312,27 @@ const styles = StyleSheet.create({
   fotoPreview: {
     width: '100%',
     height: 200,
+  },
+
+  paymentInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 8,
+  },
+  paymentInfoLabel: {
+    width: 130,
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  paymentInfoValue: {
+    flex: 1,
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'right',
   },
   cardPhotoThumb: {
     width: '100%',

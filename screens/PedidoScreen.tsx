@@ -27,6 +27,10 @@ type ServiceData = {
   data_agendada?: string;
   hora_agendada?: string;
   observacoes?: string;
+  valor?: number | string;
+  forma_de_pagamento?: string;
+  descricao_pagamento?: string;
+  chaveDePagamento?: string;
   fotos_contexto?: unknown;
   fotosContexto?: unknown;
   foto_contexto?: unknown;
@@ -580,6 +584,47 @@ export default function PedidoScreen() {
                 <Text style={styles.infoLabel}>Data Agendada</Text>
                 <Text style={styles.infoValue}>{formattedDate} às {service?.hora_agendada || '--:--'}</Text>
               </View>
+
+              <View style={styles.divider} />
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Forma de Pagamento</Text>
+                <Text style={styles.infoValue}>{service?.forma_de_pagamento || '-'}</Text>
+              </View>
+              <View style={styles.divider} />
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Descrição do Pagamento</Text>
+                <Text style={styles.infoValue}>
+                {service?.descricao_pagamento
+                  ?.replace(/pix/gi, '')
+                  .trim() || '-'}
+                </Text>
+              </View>
+            <View style={styles.divider} />
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Chave de Pagamento</Text>
+              <Text style={styles.infoValue}>{service?.chaveDePagamento || '-'}</Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Valor</Text>
+              <Text style={styles.infoValue}>
+                {service?.valor
+                  ? Number(service.valor).toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                    })
+                  : '-'}
+              </Text>
+            </View>
+
+<View style={styles.divider} />
+
+<View style={styles.infoRow}>
+  <Text style={styles.infoLabel}>Observações</Text>
+  <Text style={styles.infoValue}>{service?.observacoes || '-'}</Text>
+</View>
             </View>
 
             <Text style={styles.sectionTitle}>Fotos de Contexto:</Text>
@@ -680,6 +725,7 @@ export default function PedidoScreen() {
         visible={isChecklistVisible}
         onClose={closeCompletionFlow}
         onComplete={handleChecklistComplete}
+        chaveDePagamento={service?.chaveDePagamento}
       />
 
       <PhotoUploadModal
