@@ -7,7 +7,7 @@ import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageZoomModal from '../../components/ImageZoomModal';
 import PhotoUploadModal from '../../components/PhotoUploadModal';
-import { assignAdminService, createAdminServiceRequest, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, type AdminDashboardData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+import { assignAdminService, createAdminServiceRequest, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, fetchAdminServiceFinalizacao, type AdminDashboardData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import StandardImage from '../../components/StandardImage';
@@ -438,29 +438,38 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     }
   };
 
-  const openDetailModal = async (item: AdminService) => {
-    const fullService = await fetchServiceFullData(String(item.id));
+const openDetailModal = async (item: AdminService) => {
+  const fullService = await fetchServiceFullData(String(item.id));
+  const finalizacao = await fetchAdminServiceFinalizacao(String(item.id));
 
-    const mergedItem = {
-      ...item,
-      ...(fullService || {}),
-      id: item.id,
-    } as AdminService;
+  const mergedItem = {
+    ...item,
+    ...(fullService || {}),
+    id: item.id,
+  } as AdminService;
 
-    const checklistFromApi: ChecklistItem[] = Array.isArray((mergedItem as any).checklist)
-      ? (mergedItem as any).checklist.map((check: any, idx: number) => ({
-          id: `${mergedItem.id}-check-${idx}`,
-          label: String(check.item || `Item ${idx + 1}`),
-          done: Boolean(check.status),
-        }))
+  const rawChecklist = Array.isArray(finalizacao?.checklist) && finalizacao.checklist.length > 0
+    ? finalizacao.checklist
+    : Array.isArray(mergedItem.checklist)
+      ? mergedItem.checklist
       : [];
 
-    setSelectedService({
-      ...(mergedItem as any),
-      checklist: checklistFromApi,
-      comprovanteUri: (mergedItem as any).comprovanteUri || item.comprovanteUri,
-    });
-  };
+  const checklistFromApi: ChecklistItem[] = rawChecklist.map((check: any, idx) => ({
+        id: `${mergedItem.id}-check-${idx}`,
+        label: String(check?.item || check?.label || `Item ${idx + 1}`),
+        done: Boolean(check?.status ?? check?.done),
+      }));
+
+  setSelectedService({
+    ...(mergedItem as any),
+    checklist: checklistFromApi,
+    fotoUri: mergedItem.fotoUri || finalizacao?.fotos?.[0],
+    fotosContextoUris: finalizacao?.fotos?.length ? finalizacao.fotos : mergedItem.fotosContextoUris || [],
+    assinaturaUri: finalizacao?.assinatura || mergedItem.assinaturaUri,
+    observacoes: finalizacao?.observacoes || mergedItem.observacoes,
+    comprovanteUri: (mergedItem as any).comprovanteUri || item.comprovanteUri,
+  });
+};
 
   const openNaoRealizadoModal = async (item: AdminService) => {
     const fullService = await fetchServiceFullData(String(item.id));
@@ -2087,7 +2096,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
                 <Text style={styles.detailSectionTitle}>Checklist de Instalacao</Text>
               </View>
 
-              {selectedService.checklist.length ? (
+              {selectedService.checklist?.length ? (
                 <>
                   {selectedService.checklist.map((ci) => (
                     <View
@@ -2193,7 +2202,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
 
               {/* Comprovante de Pagamento */}
               {(() => {
-                const hasCobranca = selectedService.checklist.some(c => c.label.includes('Cobrança feita') && c.done);
+                const hasCobranca = selectedService.checklist?.some((c) => c.label?.includes('Cobrança feita') && c.done);
                 if (!hasCobranca || !selectedService.comprovanteUri) return null;
 
                 const apiKey = getAdminApiKey();

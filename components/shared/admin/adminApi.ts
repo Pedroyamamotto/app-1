@@ -134,6 +134,70 @@ type CreateAdminServiceRequestPayload = {
   tecnicoId?: string;
 };
 
+export type AdminServiceFinalizacao = {
+  checklist?: { item: string; status: boolean }[];
+  fotos?: string[];
+  assinatura?: string;
+  observacoes?: string;
+};
+
+const normalizeFinalizacaoChecklist = (value: unknown): { item: string; status: boolean }[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry: any, index: number) => {
+      if (typeof entry === 'string') {
+        const item = entry.trim();
+        return item ? { item, status: true } : null;
+      }
+
+      const item = String(entry?.item || entry?.label || entry?.nome || entry?.descricao || `Item ${index + 1}`).trim();
+      return item
+        ? {
+            item,
+            status: Boolean(entry?.status ?? entry?.done ?? entry?.checked ?? true),
+          }
+        : null;
+    })
+    .filter(Boolean) as { item: string; status: boolean }[];
+};
+
+const normalizeAdminServiceFinalizacao = (payload: unknown): AdminServiceFinalizacao | null => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const asAny = payload as any;
+  const servico = asAny?.servico || asAny?.service || asAny?.data?.servico || asAny?.data?.service || null;
+  const base = asAny?.finalizacao || asAny?.data?.finalizacao || servico || asAny?.data || asAny;
+
+  return {
+    checklist: normalizeFinalizacaoChecklist(
+      base?.checklist ||
+        base?.itens_checklist ||
+        base?.itensChecklist ||
+        base?.check_list ||
+        servico?.checklist
+    ),
+    fotos: resolveAssetUrls(
+      base?.fotos ||
+        base?.fotos_contexto ||
+        base?.fotosContexto ||
+        base?.imagens ||
+        base?.fotos_urls ||
+        servico?.fotos_urls ||
+        servico?.fotos ||
+        servico?.foto_url,
+      API_BASE_URL
+    ),
+    assinatura: resolveAssetUrl(
+      base?.assinatura || base?.assinatura_url || base?.assinaturaUrl || servico?.assinatura_url || servico?.assinatura,
+      API_BASE_URL
+    ),
+    observacoes: base?.observacoes || base?.observacao || base?.notes || servico?.observacoes || undefined,
+  };
+};
+
 const normalizeServices = (payload: unknown): any[] => {
   const asAny = payload as any;
   const nestedServices = asAny?.services;
@@ -1019,3 +1083,20 @@ export function buildTechniciansFromServices(services: AdminServiceData[]): Admi
 
   return Array.from(grouped.values()).sort((a, b) => a.nome.localeCompare(b.nome));
 }
+
+export const fetchAdminServiceFinalizacao = async (
+  serviceId: string
+): Promise<AdminServiceFinalizacao | null> => {
+  const res = await apiFetch(`/api/services/${serviceId}/finalizacao`);
+
+  if (res.status === 404) {
+    return null;
+  }
+
+  if (!res.ok) {
+    throw new Error(`Erro ao buscar Dados: ${res.status}`);
+  }
+
+  const payload = await res.json().catch(() => null);
+  return normalizeAdminServiceFinalizacao(payload);
+};
