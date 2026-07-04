@@ -142,13 +142,22 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
 
   const uniqueServicePhotos = useMemo(() => {
     if (!selectedService) return [];
-    const photos = [];
-    if (selectedService.fotoUri) photos.push(selectedService.fotoUri);
+    const photos: string[] = [];
+    // Campo principal retornado pelo backend
+    if (selectedService.fotos_urls && Array.isArray(selectedService.fotos_urls)) {
+      photos.push(...selectedService.fotos_urls);
+    }
+    if (selectedService.fotoUri && !photos.includes(selectedService.fotoUri)) {
+      photos.push(selectedService.fotoUri);
+    }
+    if (selectedService.foto_url && !photos.includes(selectedService.foto_url)) {
+      photos.push(selectedService.foto_url);
+    }
     if (selectedService.fotosServicoUris && Array.isArray(selectedService.fotosServicoUris)) {
-      photos.push(...selectedService.fotosServicoUris);
+      photos.push(...selectedService.fotosServicoUris.filter((u: string) => !photos.includes(u)));
     }
     if (selectedService.fotos_servico_uris && Array.isArray(selectedService.fotos_servico_uris)) {
-      photos.push(...selectedService.fotos_servico_uris);
+      photos.push(...selectedService.fotos_servico_uris.filter((u: string) => !photos.includes(u)));
     }
     return Array.from(new Set(photos)).filter(Boolean);
   }, [selectedService]);

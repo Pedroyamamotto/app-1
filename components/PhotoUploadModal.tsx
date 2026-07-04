@@ -133,7 +133,7 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
     }
 
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsMultipleSelection: allowMultiple,
       selectionLimit: allowMultiple ? maxPhotos - photos.length : 1,
       allowsEditing: false,

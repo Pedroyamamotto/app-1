@@ -9,7 +9,7 @@ import NotCompletedModal from '../components/NotCompletedModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
 import StandardImage from '../components/StandardImage';
-import ImageZoomModal from '../components/ImageZoomModal';
+import ImageZoomModal, { PhotoGalleryModal } from '../components/ImageZoomModal';
 import Stopwatch from '../components/Stopwatch';
 import PauseModal from '../components/PauseModal';
 import { getAdminApiKey } from '../components/shared/admin/adminApi';
@@ -65,6 +65,7 @@ type ServiceData = {
   comprovante_pagamento?: any;
   assinatura_url?: string;
   assinatura?: string;
+  fotos_urls?: string[];
   fotos_servico_uris?: string[];
   fotosServicoUris?: string[];
   fotoUri?: string;
@@ -84,12 +85,18 @@ type ChecklistCompletePayload = {
   receiptPhoto?: UploadedPhoto | null;
 };
 
-const normalizeSignatureUri = (uri: string | null | undefined) => {
+const normalizeImageUri = (uri: string | null | undefined): string | null => {
   if (!uri) return null;
   const trimmed = uri.trim();
+  // Already absolute URL or file path
   if (trimmed.startsWith('http') || trimmed.startsWith('file:') || trimmed.startsWith('data:')) {
     return trimmed;
   }
+  // Relative API path like /api/uploads/services/...
+  if (trimmed.startsWith('/api/') || trimmed.startsWith('/uploads/')) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+  // Likely base64 signature
   if (trimmed.length > 50) {
     return `data:image/png;base64,${trimmed}`;
   }
@@ -120,13 +127,14 @@ export default function PedidoScreen() {
   const [completionData, setCompletionData] = useState<{ 
     checklist: string[]; 
     checklistObs: string; 
-    photo: UploadedPhoto | null;
+    photos: UploadedPhoto[];
+    receiptPhotos: UploadedPhoto[];
     receiptPhoto: UploadedPhoto | null;
     reasonNoReceipt?: string | null;
-  }>({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null, reasonNoReceipt: null });
+  }>({ checklist: [], checklistObs: '', photos: [], receiptPhotos: [], receiptPhoto: null, reasonNoReceipt: null });
 
   const resetCompletionDraft = () => {
-    setCompletionData({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null, reasonNoReceipt: null });
+    setCompletionData({ checklist: [], checklistObs: '', photos: [], receiptPhotos: [], receiptPhoto: null, reasonNoReceipt: null });
   };
 
   const closeCompletionFlow = () => {
@@ -324,6 +332,42 @@ export default function PedidoScreen() {
       .join(' - ') || 'Endereço não informado';
   }, [client]);
 
+  const servicePhotos: string[] = useMemo(() => {
+    const photos: string[] = [];
+    // Campo principal do backend
+    if (service?.fotos_urls && Array.isArray(service.fotos_urls)) {
+      photos.push(...service.fotos_urls);
+    }
+    if (service?.fotos_servico_uris && Array.isArray(service.fotos_servico_uris)) {
+      photos.push(...service.fotos_servico_uris.filter((u: string) => !photos.includes(u)));
+    }
+    if (finalizacao?.fotosServico && Array.isArray(finalizacao.fotosServico)) {
+      photos.push(...(finalizacao.fotosServico as string[]).filter((u: string) => !photos.includes(u)));
+    }
+    if (finalizacao?.fotos && Array.isArray(finalizacao.fotos)) {
+      photos.push(...(finalizacao.fotos as string[]).filter((u: string) => !photos.includes(u)));
+    }
+    const singlePhoto = service?.fotoUri || (service?.foto_url as string) || (completionPhotoUrl as string);
+    if (singlePhoto && !photos.includes(singlePhoto)) {
+      photos.push(singlePhoto);
+    }
+    return photos.filter(Boolean);
+  }, [service, finalizacao, completionPhotoUrl]);
+
+  const finalizedContextPhotoUrls: string[] = useMemo(() => {
+    const urls: string[] = [];
+    if (service?.fotosContextoUris && Array.isArray(service.fotosContextoUris)) {
+      urls.push(...service.fotosContextoUris);
+    }
+    if (finalizacao?.fotosContexto && Array.isArray(finalizacao.fotosContexto)) {
+      urls.push(...finalizacao.fotosContexto);
+    }
+    if (service?.fotos_contexto_uris && Array.isArray(service.fotos_contexto_uris)) {
+      urls.push(...service.fotos_contexto_uris);
+    }
+    return urls.filter(Boolean);
+  }, [service, finalizacao]);
+
   useEffect(() => {
     const loadPedido = async () => {
       if (!serviceId) {
@@ -397,9 +441,10 @@ export default function PedidoScreen() {
     const items = Array.isArray(payload) ? payload : payload?.items || [];
     const checklistObs = Array.isArray(payload) ? '' : String(payload?.obs || '').trim();
     const receiptPhoto = Array.isArray(payload) ? null : payload?.receiptPhoto || null;
+    const receiptPhotos = Array.isArray(payload) ? [] : payload?.receiptPhotos || [];
     const reasonNoReceipt = Array.isArray(payload) ? null : payload?.reasonNoReceipt || null;
 
-    setCompletionData((prev) => ({ ...prev, checklist: items, checklistObs, receiptPhoto, reasonNoReceipt }));
+    setCompletionData((prev) => ({ ...prev, checklist: items, checklistObs, receiptPhoto, receiptPhotos, reasonNoReceipt }));
     setChecklistVisible(false);
     setPhotoUploadVisible(true);
   };
@@ -407,11 +452,17 @@ export default function PedidoScreen() {
   const handlePhotoUploadBack = () => {
     setPhotoUploadVisible(false);
     setChecklistVisible(true);
-    setCompletionData((prev) => ({ ...prev, photo: null }));
+    setCompletionData((prev) => ({ ...prev, photos: [] }));
   };
 
   const handlePhotoUploadNext = (photo: UploadedPhoto) => {
-    setCompletionData((prev) => ({ ...prev, photo }));
+    setCompletionData((prev) => ({ ...prev, photos: [photo] }));
+    setPhotoUploadVisible(false);
+    setSignatureVisible(true);
+  };
+
+  const handlePhotoUploadNextMany = (photos: UploadedPhoto[]) => {
+    setCompletionData((prev) => ({ ...prev, photos }));
     setPhotoUploadVisible(false);
     setSignatureVisible(true);
   };
@@ -444,7 +495,7 @@ export default function PedidoScreen() {
   };
 
   // Volta para FormData: assinatura como base64
-  const buildCompletionFormData = (signature: string, photoToSend: UploadedPhoto | null) => {
+  const buildCompletionFormData = (signature: string, photosToSend: UploadedPhoto[]) => {
     const form = new FormData();
     form.append('status', 'concluido');
     form.append('checklist', JSON.stringify(completionData.checklist));
@@ -456,13 +507,17 @@ export default function PedidoScreen() {
     }
     form.append('assinatura', signature); // base64 direto
 
-    if (photoToSend?.uri) {
-      const mimeType = photoToSend.mimeType || inferMimeType(photoToSend.fileName || photoToSend.uri);
-      const fileName = buildPhotoFileName(photoToSend, mimeType);
-      (form as any).append('foto', {
-        uri: photoToSend.uri,
-        type: mimeType,
-        name: fileName,
+    if (photosToSend && photosToSend.length > 0) {
+      photosToSend.forEach((photo, index) => {
+        if (photo?.uri) {
+          const mimeType = photo.mimeType || inferMimeType(photo.fileName || photo.uri);
+          const fileName = buildPhotoFileName(photo, mimeType);
+          (form as any).append('foto', {
+            uri: photo.uri,
+            type: mimeType,
+            name: index === 0 ? fileName : `${index}_${fileName}`,
+          });
+        }
       });
     }
 
@@ -485,15 +540,15 @@ export default function PedidoScreen() {
     setIsSending(true);
 
     try {
-      const sendConclusion = async (photoToSend: UploadedPhoto | null) => {
-        const form = buildCompletionFormData(signature, photoToSend);
+      const sendConclusion = async (photosToSend: UploadedPhoto[]) => {
+        const form = buildCompletionFormData(signature, photosToSend);
         return apiFetch(`/api/services/${serviceId}`, {
           method: 'PATCH',
           body: form,
         });
       };
 
-      const res = await sendConclusion(completionData.photo);
+      const res = await sendConclusion(completionData.photos);
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -501,30 +556,30 @@ export default function PedidoScreen() {
       }
 
       // Se houver comprovante de pagamento, faz o upload separado para o endpoint admin
-      if (completionData.receiptPhoto) {
-        try {
-          const receiptForm = new FormData();
-          const photo = completionData.receiptPhoto;
+      if (completionData.receiptPhotos && completionData.receiptPhotos.length > 0) {
+        const receiptForm = new FormData();
+        completionData.receiptPhotos.forEach((photo, index) => {
           const mimeType = photo.mimeType || inferMimeType(photo.fileName || photo.uri);
           const fileName = buildPhotoFileName(photo, mimeType);
           
           (receiptForm as any).append('comprovante', {
             uri: photo.uri,
             type: mimeType,
-            name: fileName,
+            name: index === 0 ? fileName : `${index}_${fileName}`,
           });
+        });
 
-          await apiFetch(`/api/admin/services/${serviceId}/comprovante`, {
-            method: 'POST',
-            headers: {
-              'x-admin-key': getAdminApiKey(),
-            },
-            body: receiptForm,
-          });
-        } catch (receiptError) {
-          console.error('Erro ao subir comprovante:', receiptError);
-          // Avisa o usuário mas não impede a finalização
-          Alert.alert('Aviso', 'O serviço foi finalizado, mas houve um erro ao enviar o comprovante de pagamento.');
+        const receiptRes = await apiFetch(`/api/admin/services/${serviceId}/comprovante`, {
+          method: 'POST',
+          headers: {
+            'x-admin-key': getAdminApiKey(),
+          },
+          body: receiptForm,
+        });
+
+        if (!receiptRes.ok) {
+          const errData = await receiptRes.json().catch(() => ({}));
+          throw new Error(errData?.message || 'Erro ao enviar comprovante de pagamento.');
         }
       }
 
@@ -732,26 +787,6 @@ export default function PedidoScreen() {
     })();
 
     const hasChecklist = normalizedChecklist.length > 0;
-    
-    // Multiple service photos support
-    const servicePhotos: string[] = useMemo(() => {
-      const photos: string[] = [];
-      if (service?.fotos_servico_uris && Array.isArray(service.fotos_servico_uris)) {
-        photos.push(...service.fotos_servico_uris);
-      }
-      if (finalizacao?.fotosServico && Array.isArray(finalizacao.fotosServico)) {
-        photos.push(...finalizacao.fotosServico);
-      }
-      if (finalizacao?.fotos && Array.isArray(finalizacao.fotos)) {
-        photos.push(...finalizacao.fotos);
-      }
-      const singlePhoto = service?.fotoUri || (service?.foto_url as string) || (completionPhotoUrl as string);
-      if (singlePhoto && !photos.includes(singlePhoto)) {
-        photos.push(singlePhoto);
-      }
-      return photos.filter(Boolean);
-    }, [service, finalizacao, completionPhotoUrl]);
-
     const hasPhotoServico = servicePhotos.length > 0;
 
     const hasReceiptPhoto = !!(
@@ -765,23 +800,9 @@ export default function PedidoScreen() {
     const signatureUri = service?.assinatura_url || service?.assinaturaUri || finalizacao?.assinatura || service?.assinatura;
     const hasSignature = !!signatureUri;
 
-    const contextPhotoUrls: string[] = useMemo(() => {
-      const urls: string[] = [];
-      if (service?.fotosContextoUris && Array.isArray(service.fotosContextoUris)) {
-        urls.push(...service.fotosContextoUris);
-      }
-      if (finalizacao?.fotosContexto && Array.isArray(finalizacao.fotosContexto)) {
-        urls.push(...finalizacao.fotosContexto);
-      }
-      if (service?.fotos_contexto_uris && Array.isArray(service.fotos_contexto_uris)) {
-        urls.push(...service.fotos_contexto_uris);
-      }
-      return urls.filter(Boolean);
-    }, [service, finalizacao]);
-
     const checklistStatus = hasChecklist ? 'Concluído' : 'Não enviado';
     const photoServicoStatus = hasPhotoServico ? `${servicePhotos.length} Enviada(s)` : 'Não enviada';
-    const contextPhotoStatus = contextPhotoUrls.length > 0 ? `${contextPhotoUrls.length} Enviada(s)` : 'Não enviadas';
+    const contextPhotoStatus = finalizedContextPhotoUrls.length > 0 ? `${finalizedContextPhotoUrls.length} Enviada(s)` : 'Não enviadas';
     const signatureStatus = hasSignature ? 'Enviada' : 'Não enviada';
     
     let receiptStatus = 'Não enviado';
@@ -810,7 +831,7 @@ export default function PedidoScreen() {
         pausas: service?.quantidade_pausas || 0,
         checklist: normalizedChecklist,
         fotosServico: servicePhotos,
-        fotosContexto: contextPhotoUrls,
+        fotosContexto: finalizedContextPhotoUrls,
         comprovanteUri: receiptPhotoUrl ? (typeof receiptPhotoUrl === 'string' ? receiptPhotoUrl : receiptPhotoUrl.uri) : undefined,
         assinaturaUri: signatureUri || undefined,
       };
@@ -1039,16 +1060,16 @@ export default function PedidoScreen() {
               {/* Card 3: Fotos de Contexto */}
               <TouchableOpacity 
                 style={styles.gridCard}
-                activeOpacity={contextPhotoUrls.length > 0 ? 0.7 : 1}
+                activeOpacity={finalizedContextPhotoUrls.length > 0 ? 0.7 : 1}
                 onPress={() => {
-                  if (contextPhotoUrls.length > 0) {
-                    if (contextPhotoUrls.length === 1) {
-                      setZoomedImage(contextPhotoUrls[0]);
+                  if (finalizedContextPhotoUrls.length > 0) {
+                    if (finalizedContextPhotoUrls.length === 1) {
+                      setZoomedImage(finalizedContextPhotoUrls[0]);
                     } else {
                       Alert.alert(
                         'Fotos de Contexto',
-                        `Deseja visualizar qual das ${contextPhotoUrls.length} fotos de contexto?`,
-                        contextPhotoUrls.map((uri, idx) => ({
+                        `Deseja visualizar qual das ${finalizedContextPhotoUrls.length} fotos de contexto?`,
+                        finalizedContextPhotoUrls.map((uri, idx) => ({
                           text: `Visualizar Foto ${idx + 1}`,
                           onPress: () => setZoomedImage(uri)
                         })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
@@ -1061,16 +1082,16 @@ export default function PedidoScreen() {
                   <View style={[styles.circleIconBg, { backgroundColor: '#e0f2fe' }]}>
                     <Feather name="image" size={16} color="#0284c7" />
                   </View>
-                  <View style={[styles.badgeStyle, { backgroundColor: contextPhotoUrls.length > 0 ? '#dcfce7' : '#fee2e2' }]}>
-                    <Text style={[styles.badgeText, { color: contextPhotoUrls.length > 0 ? '#15803d' : '#ef4444' }]}>
-                      {contextPhotoUrls.length > 0 ? `${contextPhotoUrls.length} Enviada(s)` : 'Não enviadas'}
+                  <View style={[styles.badgeStyle, { backgroundColor: finalizedContextPhotoUrls.length > 0 ? '#dcfce7' : '#fee2e2' }]}>
+                    <Text style={[styles.badgeText, { color: finalizedContextPhotoUrls.length > 0 ? '#15803d' : '#ef4444' }]}>
+                      {finalizedContextPhotoUrls.length > 0 ? `${finalizedContextPhotoUrls.length} Enviada(s)` : 'Não enviadas'}
                     </Text>
                   </View>
                 </View>
                 <View style={{ marginTop: 12 }}>
                   <Text style={styles.gridCardTitle}>Fotos de Contexto</Text>
                   <Text style={styles.gridCardSub}>
-                    {contextPhotoUrls.length > 0 ? 'Clique para visualizar as fotos de contexto.' : 'Nenhuma foto de contexto enviada.'}
+                    {finalizedContextPhotoUrls.length > 0 ? 'Clique para visualizar as fotos de contexto.' : 'Nenhuma foto de contexto enviada.'}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1245,7 +1266,7 @@ export default function PedidoScreen() {
 
         <ImageZoomModal
           visible={!!zoomedImage}
-          imageUri={normalizeSignatureUri(zoomedImage)}
+          imageUri={normalizeImageUri(zoomedImage)}
           onClose={() => setZoomedImage(null)}
         />
       </SafeAreaView>
@@ -1578,7 +1599,7 @@ export default function PedidoScreen() {
 
       <ImageZoomModal
         visible={!!zoomedImage}
-        imageUri={normalizeSignatureUri(zoomedImage)}
+        imageUri={normalizeImageUri(zoomedImage)}
         onClose={() => setZoomedImage(null)}
       />
 
@@ -1594,6 +1615,12 @@ export default function PedidoScreen() {
         onClose={closeCompletionFlow}
         onBack={handlePhotoUploadBack}
         onNext={handlePhotoUploadNext}
+        onNextMany={handlePhotoUploadNextMany}
+        allowMultiple={true}
+        maxPhotos={5}
+        title="Fotos do Serviço Instalado"
+        subtitle="Selecione ou tire até 5 fotos da conclusão do serviço"
+        labelText="Fotos da Instalação/Serviço (Máximo 5) *"
       />
 
       <SignatureModal

@@ -19,6 +19,7 @@ type ChecklistModalProps = {
     items: string[];
     obs?: string;
     receiptPhoto?: any;
+    receiptPhotos?: any[];
     reasonNoReceipt?: string;
   }) => void;
   chaveDePagamento?: string | null;
@@ -45,7 +46,7 @@ const ChecklistModal = ({
   chaveDePagamento,
 }: ChecklistModalProps) => {
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
-  const [receiptPhoto, setReceiptPhoto] = useState<any>(null);
+  const [receiptPhotos, setReceiptPhotos] = useState<any[]>([]);
   const [obs, setObs] = useState('');
   const [reasonModalVisible, setReasonModalVisible] = useState(false);
   const [tempReason, setTempReason] = useState('');
@@ -58,7 +59,7 @@ const ChecklistModal = ({
   useEffect(() => {
     if (!visible) {
       setCheckedItems(new Set());
-      setReceiptPhoto(null);
+      setReceiptPhotos([]);
       setObs('');
       setReasonNoReceipt('');
       setTempReason('');
@@ -82,7 +83,7 @@ const ChecklistModal = ({
       newCheckedItems.delete(item);
 
       if (item === COBRANCA_ITEM) {
-        setReceiptPhoto(null);
+        setReceiptPhotos([]);
       }
     } else {
       newCheckedItems.add(item);
@@ -103,19 +104,19 @@ const ChecklistModal = ({
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
       quality: 0.8,
     });
 
     if (!result.canceled) {
-      const asset = result.assets[0];
-
-      setReceiptPhoto({
+      const selected = result.assets.map(asset => ({
         uri: asset.uri,
         mimeType: asset.mimeType || 'image/jpeg',
         fileName: asset.fileName || 'comprovante.jpg',
-      });
+      }));
+      setReceiptPhotos(prev => [...prev, ...selected].slice(0, 5));
     }
   };
 
@@ -131,18 +132,17 @@ const ChecklistModal = ({
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
       quality: 0.8,
     });
 
     if (!result.canceled) {
       const asset = result.assets[0];
-
-      setReceiptPhoto({
+      const newPhoto = {
         uri: asset.uri,
         mimeType: asset.mimeType || 'image/jpeg',
         fileName: asset.fileName || 'comprovante.jpg',
-      });
+      };
+      setReceiptPhotos(prev => [...prev, newPhoto].slice(0, 5));
     }
   };
 
@@ -150,7 +150,7 @@ const ChecklistModal = ({
   const cobrancaMarcada = checkedItems.has(COBRANCA_ITEM);
   const checklistMinimo = checkedItems.size >= 4 || trimmedObs.length > 0;
 
-  const comprovanteObrigatorioOk = cobrancaObrigatoria ? (!!receiptPhoto || !!reasonNoReceipt) : true;
+  const comprovanteObrigatorioOk = cobrancaObrigatoria ? (receiptPhotos.length > 0 || !!reasonNoReceipt) : true;
 
   const canProceed = cobrancaObrigatoria
     ? checklistMinimo && cobrancaMarcada && comprovanteObrigatorioOk
@@ -199,6 +199,7 @@ const ChecklistModal = ({
                   <TouchableOpacity
                     style={[
                       styles.checklistItem,
+                      isChecked && styles.checklistItemChecked,
                       isCobranca && isChecked && styles.checklistItemWithSubContent,
                       isCobranca && cobrancaObrigatoria && styles.lockedChecklistItem,
                     ]}
@@ -209,7 +210,7 @@ const ChecklistModal = ({
                       {isChecked && <Feather name="check" size={14} color="#fff" />}
                     </View>
 
-                    <Text style={styles.checklistLabel}>
+                    <Text style={[styles.checklistLabel, isChecked && styles.checklistLabelChecked]}>
                       {item}
                       {isCobranca && cobrancaObrigatoria ? ' *' : ''}
                     </Text>
@@ -244,7 +245,7 @@ const ChecklistModal = ({
                         </TouchableOpacity>
                       </View>
 
-                      {cobrancaObrigatoria && !receiptPhoto && !reasonNoReceipt && (
+                      {cobrancaObrigatoria && receiptPhotos.length === 0 && !reasonNoReceipt && (
                         <TouchableOpacity
                           style={styles.sendWithoutReceiptButton}
                           onPress={() => {
@@ -270,17 +271,19 @@ const ChecklistModal = ({
                             <Feather name="x-circle" size={18} color="#ef4444" />
                           </TouchableOpacity>
                         </View>
-                      ) : receiptPhoto ? (
-                        <View style={styles.receiptPreview}>
-                          <Feather name="file-text" size={16} color="#00a63f" />
-
-                          <Text style={styles.receiptFileName} numberOfLines={1}>
-                            {receiptPhoto.fileName || 'comprovante_selecionado.jpg'}
-                          </Text>
-
-                          <TouchableOpacity onPress={() => setReceiptPhoto(null)}>
-                            <Feather name="x-circle" size={18} color="#ef4444" />
-                          </TouchableOpacity>
+                      ) : receiptPhotos.length > 0 ? (
+                        <View style={{ gap: 6 }}>
+                          {receiptPhotos.map((photo, idx) => (
+                            <View key={idx} style={styles.receiptPreview}>
+                              <Feather name="file-text" size={16} color="#00a63f" />
+                              <Text style={styles.receiptFileName} numberOfLines={1}>
+                                {photo.fileName || `comprovante_${idx + 1}.jpg`}
+                              </Text>
+                              <TouchableOpacity onPress={() => setReceiptPhotos(prev => prev.filter((_, i) => i !== idx))}>
+                                <Feather name="x-circle" size={18} color="#ef4444" />
+                              </TouchableOpacity>
+                            </View>
+                          ))}
                         </View>
                       ) : cobrancaObrigatoria ? (
                         <Text style={styles.requiredReceiptText}>
@@ -305,7 +308,7 @@ const ChecklistModal = ({
                 ]}
                 value={obs}
                 onChangeText={setObs}
-                placeholder="Ex: Cliente não autorizou os itens restantes"
+                placeholder="Informe observações se necessário..."
                 placeholderTextColor="#9ca3af"
                 multiline
                 textAlignVertical="top"
@@ -327,7 +330,8 @@ const ChecklistModal = ({
                 onComplete({
                   items: Array.from(checkedItems),
                   obs: trimmedObs,
-                  receiptPhoto,
+                  receiptPhoto: receiptPhotos[0] || null,
+                  receiptPhotos,
                   reasonNoReceipt,
                 })
               }
@@ -511,10 +515,16 @@ const styles = StyleSheet.create({
   checklistItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f8fafc',
     padding: 15,
     borderRadius: 8,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  checklistItemChecked: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#bcf0da',
   },
   lockedChecklistItem: {
     backgroundColor: '#fff7ed',
@@ -615,13 +625,17 @@ const styles = StyleSheet.create({
     marginRight: 15,
   },
   checkboxChecked: {
-    backgroundColor: '#7A1A1A',
-    borderColor: '#7A1A1A',
+    backgroundColor: '#16a34a',
+    borderColor: '#16a34a',
   },
   checklistLabel: {
     flex: 1,
     fontSize: 14,
-    color: '#495057',
+    color: '#475569',
+  },
+  checklistLabelChecked: {
+    color: '#15803d',
+    fontWeight: '600',
   },
   obsContainer: {
     marginTop: 4,
