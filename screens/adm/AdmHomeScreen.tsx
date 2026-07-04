@@ -37,6 +37,20 @@ import {
   toCalendarDate,
 } from './components/utils';
 
+const normalizeSignatureUri = (uri: string | null | undefined) => {
+  if (!uri) return null;
+  const trimmed = uri.trim();
+  if (trimmed.startsWith('http') || trimmed.startsWith('file:') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  if (trimmed.length > 50) {
+    return `data:image/png;base64,${trimmed}`;
+  }
+  return trimmed;
+};
+
+import { gerarRelatorioPDF } from '../../utils/report';
+
 // Valor padrão para formulário de novo serviço
 const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
   clientMode: 'new',
@@ -100,6 +114,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const [selectedNaoRealizado, setSelectedNaoRealizado] = useState<NaoRealizadoDetail | null>(null);
   const [reagendarVisible, setReagendarVisible] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [isChecklistDetailVisible, setChecklistDetailVisible] = useState(false);
   const [isReagendarTecnicoOpen, setIsReagendarTecnicoOpen] = useState(false);
   const [showReagendarCal, setShowReagendarCal] = useState(false);
   const [showReagendarTime, setShowReagendarTime] = useState(false);
@@ -124,6 +139,70 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const [adicionarImagemPhotos, setAdicionarImagemPhotos] = useState<UploadedPhoto[]>([]);
   const [isAdicionarPickerVisible, setIsAdicionarPickerVisible] = useState(false);
   const [isAdicionarSending, setIsAdicionarSending] = useState(false);
+
+  const uniqueServicePhotos = useMemo(() => {
+    if (!selectedService) return [];
+    const photos = [];
+    if (selectedService.fotoUri) photos.push(selectedService.fotoUri);
+    if (selectedService.fotosServicoUris && Array.isArray(selectedService.fotosServicoUris)) {
+      photos.push(...selectedService.fotosServicoUris);
+    }
+    if (selectedService.fotos_servico_uris && Array.isArray(selectedService.fotos_servico_uris)) {
+      photos.push(...selectedService.fotos_servico_uris);
+    }
+    return Array.from(new Set(photos)).filter(Boolean);
+  }, [selectedService]);
+
+  const uniqueContextPhotos = useMemo(() => {
+    if (!selectedService) return [];
+    const photos = [
+      ...(selectedService.fotosContextoUris || []),
+      ...(selectedService.fotos_contexto_uris || [])
+    ].filter(Boolean);
+    return Array.from(new Set(photos));
+  }, [selectedService]);
+
+  const handleGerarRelatorio = async () => {
+    if (!selectedService) return;
+
+    const valor = selectedService.valor;
+    const valorFormatado = valor || valor === 0
+      ? Number(valor).toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        })
+      : '-';
+
+    const rawChecklist = selectedService.checklist || [];
+    const checklistFormatted = rawChecklist.map((c: any) => ({
+      label: String(c.item || c.label || ''),
+      done: Boolean(c.done),
+    }));
+
+    const data = {
+      numeroPedido: selectedService.numeroPedido || '-',
+      status: 'Concluído',
+      dataConclusao: `${selectedService.dataConclusao || selectedService.data} às ${selectedService.horaConclusao || 'Horário não informado'}`,
+      cliente: selectedService.cliente || '-',
+      telefone: selectedService.telefone || '-',
+      endereco: selectedService.endereco || '-',
+      tecnico: selectedService.tecnico || '-',
+      descricao: formatLockDisplayName(selectedService.descricao),
+      formaPagamento: selectedService.forma_de_pagamento || '-',
+      descricaoPagamento: String(selectedService.descricao_pagamento || '').replace(/pix/gi, '').trim() || '-',
+      chavePagamento: selectedService.chaveDePagamento || '-',
+      valor: valorFormatado,
+      observacoes: selectedService.observacoes || '-',
+      duracaoAtendimentoMin: Math.round((selectedService.tempo_trabalhado_ms || 0) / 60000),
+      pausas: selectedService.quantidade_pausas || 0,
+      checklist: checklistFormatted,
+      fotosServico: uniqueServicePhotos,
+      fotosContexto: uniqueContextPhotos,
+      comprovanteUri: selectedService.comprovanteUri || undefined,
+      assinaturaUri: selectedService.assinaturaUri || undefined,
+    };
+    await gerarRelatorioPDF(data);
+  };
 
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editTarget, setEditTarget] = useState<AdminService | null>(null);
@@ -476,11 +555,14 @@ const openDetailModal = async (item: AdminService) => {
       ? mergedItem.checklist
       : [];
 
-  const checklistFromApi: ChecklistItem[] = rawChecklist.map((check: any, idx) => ({
-        id: `${mergedItem.id}-check-${idx}`,
-        label: String(check?.item || check?.label || `Item ${idx + 1}`),
-        done: Boolean(check?.status ?? check?.done),
-      }));
+  const checklistFromApi: ChecklistItem[] = rawChecklist.map((check: any, idx) => {
+    const isString = typeof check === 'string';
+    return {
+      id: `${mergedItem.id}-check-${idx}`,
+      label: isString ? check : String(check?.item || check?.label || `Item ${idx + 1}`),
+      done: isString ? true : Boolean(check?.status ?? check?.done),
+    };
+  });
 
   const hasComprovante = !!(
     mergedItem.has_comprovante ||
@@ -807,40 +889,61 @@ const openDetailModal = async (item: AdminService) => {
 
     const valor = item?.valor;
 
+    const valorFormatado = valor || valor === 0
+      ? Number(valor).toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        })
+      : '-';
+
     return (
       <>
         <View style={styles.detailDivider} />
 
-        <View style={styles.paymentInfoRow}>
-          <Text style={styles.paymentInfoLabel}>Forma de Pagamento</Text>
-          <Text style={styles.paymentInfoValue}>{item?.forma_de_pagamento || '-'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Feather name="credit-card" size={16} color="#64748b" />
+            <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Forma de Pagamento</Text>
+          </View>
+          <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>{item?.forma_de_pagamento || '-'}</Text>
         </View>
+        <View style={styles.detailDivider} />
 
-        <View style={styles.paymentInfoRow}>
-          <Text style={styles.paymentInfoLabel}>Descrição</Text>
-          <Text style={styles.paymentInfoValue}>{descricaoPagamento || '-'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Feather name="file-text" size={16} color="#64748b" />
+            <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Descrição</Text>
+          </View>
+          <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>{descricaoPagamento || '-'}</Text>
         </View>
+        <View style={styles.detailDivider} />
 
-        <View style={styles.paymentInfoRow}>
-          <Text style={styles.paymentInfoLabel}>Chave</Text>
-          <Text style={styles.paymentInfoValue}>{item?.chaveDePagamento || '-'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Feather name="key" size={16} color="#64748b" />
+            <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Chave</Text>
+          </View>
+          <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>{item?.chaveDePagamento || '-'}</Text>
         </View>
+        <View style={styles.detailDivider} />
 
-        <View style={styles.paymentInfoRow}>
-          <Text style={styles.paymentInfoLabel}>Valor</Text>
-          <Text style={styles.paymentInfoValue}>
-            {valor || valor === 0
-              ? Number(valor).toLocaleString('pt-BR', {
-                  style: 'currency',
-                  currency: 'BRL',
-                })
-              : '-'}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Feather name="dollar-sign" size={16} color="#64748b" />
+            <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Valor</Text>
+          </View>
+          <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>{valorFormatado}</Text>
+        </View>
+        <View style={styles.detailDivider} />
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Feather name="edit-3" size={16} color="#64748b" />
+            <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Observações</Text>
+          </View>
+          <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700', flex: 1, textAlign: 'right', marginLeft: 20 }} numberOfLines={2}>
+            {item?.observacoes || '-'}
           </Text>
-        </View>
-
-        <View style={styles.paymentInfoRow}>
-          <Text style={styles.paymentInfoLabel}>Observações</Text>
-          <Text style={styles.paymentInfoValue}>{item?.observacoes || '-'}</Text>
         </View>
       </>
     );
@@ -2366,215 +2469,436 @@ const openDetailModal = async (item: AdminService) => {
                   <Text style={styles.detailServiceLabel}>Servico:</Text>
                   <Text style={styles.detailServiceDesc}>{formatLockDisplayName(selectedService.descricao)}</Text>
                 </View>
-
                 {renderPaymentInfo(selectedService)}
 
-                <View style={styles.detailDivider} />
-                <Text style={styles.detailConclusaoText}>
-                  Concluido em: {selectedService.dataConclusao || selectedService.data} as {selectedService.horaConclusao || 'Horario nao informado'}
-                </Text>
-              </View>
+                {/* Success Banner nested inside card */}
+                <View style={[styles.successBanner, { 
+                  backgroundColor: '#f6ffed', 
+                  borderColor: '#b7eb8f', 
+                  marginTop: 16,
+                  marginBottom: 16
+                }]}>
+                  <Feather name="check-circle" size={16} color="#16a34a" />
+                  <Text style={[styles.successBannerText, { color: '#1e293b', fontWeight: '500' }]}>
+                    Concluído em: {selectedService.dataConclusao || selectedService.data} às {selectedService.horaConclusao || 'Horário não informado'}
+                  </Text>
+                </View>
 
-              {/* Checklist */}
-              <View style={styles.detailSectionHeader}>
-                <Feather name="check-circle" size={20} color="#7A1A1A" />
-                <Text style={styles.detailSectionTitle}>Checklist de Instalacao</Text>
-              </View>
-
-              {selectedService.checklist?.length ? (
-                <>
-                  {selectedService.checklist.map((ci) => (
-                    <View
-                      key={ci.id}
-                      style={[styles.checklistItem, ci.done ? styles.checklistItemDone : styles.checklistItemPending]}
-                    >
-                      {ci.done ? (
-                        <View style={styles.checklistIconDone}>
-                          <Feather name="check" size={14} color="#fff" />
-                        </View>
-                      ) : (
-                        <View style={styles.checklistIconPending} />
-                      )}
-                      <Text style={[styles.checklistLabel, !ci.done && styles.checklistLabelPending]}>
-                        {ci.label}
+                {/* Stats Row nested inside card */}
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <View style={[styles.detailStatBox, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#e6f7ff', width: 36, height: 36, borderRadius: 18 }]}>
+                      <Feather name="clock" size={16} color="#1890ff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.detailStatLabel, { fontSize: 11 }]}>Duração do Atendimento</Text>
+                      <Text style={[styles.detailStatValue, { fontSize: 16, marginTop: 0 }]}>
+                        {Math.round((selectedService.tempo_trabalhado_ms || 0) / 60000)} min
                       </Text>
                     </View>
-                  ))}
-
-                  <View style={styles.checklistSummaryBox}>
-                    <Feather name="check" size={14} color="#2563eb" />
-                    <Text style={styles.checklistSummaryText}>
-                      {selectedService.checklist.filter((c) => c.done).length} de {selectedService.checklist.length} itens realizados
+                  </View>
+                  
+                  <View style={[styles.detailStatBox, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#f9f0ff', width: 36, height: 36, borderRadius: 18 }]}>
+                      <Feather name="pause-circle" size={16} color="#722ed1" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.detailStatLabel, { fontSize: 11 }]}>Pausas Realizadas</Text>
+                      <Text style={[styles.detailStatValue, { fontSize: 16, marginTop: 0 }]}>{selectedService.quantidade_pausas || 0}</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+                  
+              {/* Stacked list of card components */}
+              <View style={{ gap: 12, marginHorizontal: 16, marginBottom: 16 }}>
+                {/* Card 1: Checklist */}
+                <TouchableOpacity 
+                  style={styles.gridCard}
+                  activeOpacity={selectedService.checklist?.length ? 0.7 : 1}
+                  onPress={() => {
+                    if (selectedService.checklist?.length) {
+                      setChecklistDetailVisible(true);
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#e6ffed' }]}>
+                      <Feather name="clipboard" size={16} color="#389e0d" />
+                    </View>
+                    <View style={[styles.badgeStyle, { backgroundColor: selectedService.checklist?.length ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: selectedService.checklist?.length ? '#15803d' : '#ef4444' }]}>
+                        {selectedService.checklist?.length ? 'Concluído' : 'Não enviado'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Checklist de Instalação</Text>
+                    <Text style={styles.gridCardSub}>
+                      {selectedService.checklist?.length ? 'Checklist de instalação salvo.' : 'Este serviço ainda não possui checklist salvo no backend.'}
                     </Text>
                   </View>
-                </>
-              ) : (
-                <View style={styles.emptyCard}>
-                  <Text style={styles.emptyTitle}>Checklist nao enviado</Text>
-                  <Text style={styles.emptySubtitle}>Este servico ainda nao possui checklist salvo no backend.</Text>
-                </View>
-              )}
+                </TouchableOpacity>
 
-              {/* Fotos de Contexto */}
-              <View style={styles.detailSectionHeader}>
-                <Feather name="camera" size={20} color="#7A1A1A" />
-                <Text style={styles.detailSectionTitle}>Foto de Contexto</Text>
-              </View>
-
-              {(() => {
-                const contextPhotoUris = selectedService.fotosContextoUris || [];
-                if (contextPhotoUris.length > 0) {
-                  return (
-                    <View style={[styles.contextPhotosContainer, { marginBottom: 18 }]}> 
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.contextPhotosRow}
-                      >
-                        {contextPhotoUris.map((uri, index) => (
-                          <StandardImage
-                            key={`${uri}-${index}`}
-                            source={uri}
-                            onPress={() => setZoomedImage(uri)}
-                            containerStyle={styles.contextPhotoContainerDetail}
-                            imageStyle={styles.contextPhotoDetail}
-                          />
-                        ))}
-                      </ScrollView>
+                {/* Card 2: Foto do Serviço */}
+                <TouchableOpacity 
+                  style={styles.gridCard}
+                  activeOpacity={uniqueServicePhotos.length > 0 ? 0.7 : 1}
+                  onPress={() => {
+                    if (uniqueServicePhotos.length > 0) {
+                      if (uniqueServicePhotos.length === 1) {
+                        setZoomedImage(uniqueServicePhotos[0]);
+                      } else {
+                        Alert.alert(
+                          'Fotos do Serviço',
+                          `Deseja visualizar qual das ${uniqueServicePhotos.length} fotos do serviço?`,
+                          uniqueServicePhotos.map((uri: string, idx: number) => ({
+                            text: `Visualizar Foto ${idx + 1}`,
+                            onPress: () => setZoomedImage(uri)
+                          })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
+                        );
+                      }
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#eff6ff' }]}>
+                      <Feather name="camera" size={16} color="#2563eb" />
                     </View>
-                  );
-                }
-                return (
-                  <View style={styles.signatureBox}>
-                    <Text style={styles.signaturePlaceholder}>Nenhuma foto de contexto enviada</Text>
+                    <View style={[styles.badgeStyle, { backgroundColor: uniqueServicePhotos.length > 0 ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: uniqueServicePhotos.length > 0 ? '#15803d' : '#ef4444' }]}>
+                        {uniqueServicePhotos.length > 0 ? `${uniqueServicePhotos.length} Enviada(s)` : 'Não enviada'}
+                      </Text>
+                    </View>
                   </View>
-                );
-              })()}
-      {/* Modal de zoom de imagem movido para o final do componente */}
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Foto do Serviço</Text>
+                    <Text style={styles.gridCardSub}>
+                      {uniqueServicePhotos.length > 0 ? 'Clique para visualizar as fotos do serviço.' : 'Nenhuma foto de serviço enviada.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
 
-              {/* Foto */}
-              <View style={styles.detailSectionHeader}>
-                <Feather name="check-circle" size={20} color="#7A1A1A" />
-                <Text style={styles.detailSectionTitle}>Foto do Serviço</Text>
+                {/* Card 3: Fotos de Contexto */}
+                <TouchableOpacity 
+                  style={styles.gridCard}
+                  activeOpacity={uniqueContextPhotos.length > 0 ? 0.7 : 1}
+                  onPress={() => {
+                    if (uniqueContextPhotos.length > 0) {
+                      if (uniqueContextPhotos.length === 1) {
+                        setZoomedImage(uniqueContextPhotos[0]);
+                      } else {
+                        Alert.alert(
+                          'Fotos de Contexto',
+                          `Deseja visualizar qual das ${uniqueContextPhotos.length} fotos de contexto?`,
+                          uniqueContextPhotos.map((uri: string, idx: number) => ({
+                            text: `Visualizar Foto ${idx + 1}`,
+                            onPress: () => setZoomedImage(uri)
+                          })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
+                        );
+                      }
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#e0f2fe' }]}>
+                      <Feather name="image" size={16} color="#0284c7" />
+                    </View>
+                    <View style={[styles.badgeStyle, { backgroundColor: selectedService.fotosContextoUris?.length > 0 ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: selectedService.fotosContextoUris?.length > 0 ? '#15803d' : '#ef4444' }]}>
+                        {selectedService.fotosContextoUris?.length > 0 ? `${selectedService.fotosContextoUris.length} Enviada(s)` : 'Não enviadas'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Fotos de Contexto</Text>
+                    <Text style={styles.gridCardSub}>
+                      {selectedService.fotosContextoUris?.length > 0 ? 'Clique para visualizar as fotos de contexto.' : 'Nenhuma foto de contexto enviada.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Card 4: Comprovante de Pagamento */}
+                <TouchableOpacity 
+                  style={styles.gridCard}
+                  activeOpacity={(selectedService.comprovanteUri || selectedService.motivoSemComprovante) ? 0.7 : 1}
+                  onPress={() => {
+                    if (selectedService.comprovanteUri) {
+                      setZoomedImage(selectedService.comprovanteUri);
+                    } else if (selectedService.motivoSemComprovante) {
+                      Alert.alert('Sem Comprovante', `Motivo informado pelo técnico:\n\n"${selectedService.motivoSemComprovante}"`);
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#fdf4ff' }]}>
+                      <Feather name="dollar-sign" size={16} color="#c084fc" />
+                    </View>
+                    <View style={[
+                      styles.badgeStyle, 
+                      { 
+                        backgroundColor: selectedService.comprovanteUri 
+                          ? '#dcfce7' 
+                          : selectedService.motivoSemComprovante 
+                            ? '#fef3c7' 
+                            : '#fee2e2' 
+                      }
+                    ]}>
+                      <Text style={[
+                        styles.badgeText, 
+                        { 
+                          color: selectedService.comprovanteUri 
+                            ? '#15803d' 
+                            : selectedService.motivoSemComprovante 
+                              ? '#d97706' 
+                              : '#ef4444' 
+                        }
+                      ]}>
+                        {selectedService.comprovanteUri ? 'Enviado' : (selectedService.motivoSemComprovante ? 'Sem Comprovante' : 'Não enviado')}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Comprovante de Pagamento</Text>
+                    <Text style={styles.gridCardSub} numberOfLines={2}>
+                      {selectedService.comprovanteUri 
+                        ? 'Comprovante de pagamento enviado.' 
+                        : selectedService.motivoSemComprovante 
+                          ? `Motivo: "${selectedService.motivoSemComprovante}"`
+                          : 'Nenhum comprovante enviado.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Card 5: Assinatura do Cliente */}
+                <TouchableOpacity 
+                  style={styles.gridCard}
+                  activeOpacity={selectedService.assinaturaUri ? 0.7 : 1}
+                  onPress={() => {
+                    if (selectedService.assinaturaUri) {
+                      setZoomedImage(selectedService.assinaturaUri);
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#fff7ed' }]}>
+                      <Feather name="edit-3" size={16} color="#ea580c" />
+                    </View>
+                    <View style={[styles.badgeStyle, { backgroundColor: selectedService.assinaturaUri ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: selectedService.assinaturaUri ? '#15803d' : '#ef4444' }]}>
+                        {selectedService.assinaturaUri ? 'Enviada' : 'Não enviada'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Assinatura do Cliente</Text>
+                    <Text style={styles.gridCardSub}>
+                      {selectedService.assinaturaUri ? 'Assinatura do cliente salva.' : 'Nenhuma assinatura enviada.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
               </View>
 
-              {/* Só mostra a foto de instalação se ela não estiver nas fotos de contexto válidas */}
-              {(() => {
-                const install = String(selectedService.fotoUri || '').trim().replace(/\\/g, '/').toLowerCase();
-                if (!install || install === '/' || install === 'null' || install === 'undefined' || install === '[object object]' || install === 'nan') {
-                  return (
-                    <View style={styles.signatureBox}>
-                      <Text style={styles.signaturePlaceholder}>Nenhuma foto enviada pelo tecnico</Text>
-                    </View>
-                  );
-                }
-                const contextList = (selectedService.fotosContextoUris || [])
-                  .map(u => String(u || '').trim().replace(/\\/g, '/').toLowerCase())
-                  .filter(n => n && n !== '/' && n !== 'null' && n !== 'undefined' && n !== '[object object]' && n !== 'nan');
-                if (contextList.includes(install)) {
-                  // Não mostra duplicada
-                  return null;
-                }
-                return (
-                  <StandardImage
-                    source={selectedService.fotoUri}
-                    onPress={() => setZoomedImage(selectedService.fotoUri!)}
-                    containerStyle={styles.detailPhotoContainer}
-                    imageStyle={styles.detailPhoto}
-                  />
-                );
-              })()}
-
-              {/* Comprovante de Pagamento */}
-              {(() => {
-                const hasCobranca = selectedService.checklist?.some((c) => c.label?.includes('Cobrança feita') && c.done);
-                const hasComprovante = selectedService.comprovanteUri && String(selectedService.comprovanteUri).trim() !== '';
-                const motivoSem = selectedService.motivoSemComprovante;
-
-                if (!hasCobranca && !hasComprovante && !motivoSem) return null;
-
-                const apiKey = getAdminApiKey();
-
-                return (
-                  <>
-                    <View style={styles.detailSectionHeader}>
-                      <Feather name="dollar-sign" size={20} color="#7A1A1A" />
-                      <Text style={styles.detailSectionTitle}>Comprovante de Pagamento</Text>
-                    </View>
-                    
-                    {hasComprovante ? (
-                      <StandardImage
-                        source={{
-                          uri: selectedService.comprovanteUri!,
-                          headers: apiKey ? { 'x-admin-key': apiKey } : { 'x-user-type': 'admin' }
-                        }}
-                        onPress={() => setZoomedImage(selectedService.comprovanteUri!)}
-                        containerStyle={styles.detailPhotoContainer}
-                        imageStyle={styles.detailPhoto}
-                      />
-                    ) : motivoSem ? (
-                      <View style={styles.motivoCard}>
-                        <Text style={styles.motivoText}>
-                          <Text style={{ fontWeight: 'bold' }}>Sem Comprovante</Text>
-                          {'\n'}Motivo informado: {motivoSem}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.motivoCard, { borderColor: '#fca5a5', backgroundColor: '#fef2f2', borderLeftColor: '#ef4444' }]}>
-                        <Text style={[styles.motivoText, { color: '#991b1b' }]}>
-                          Nenhum comprovante de pagamento enviado.
-                        </Text>
-                      </View>
-                    )}
-                  </>
-                );
-              })()}
-
-              {/* Assinatura */}
-              <View style={styles.detailSectionHeader}>
-                <Feather name="check-circle" size={20} color="#7A1A1A" />
-                <Text style={styles.detailSectionTitle}>Assinatura do Cliente</Text>
-              </View>
-
-              {selectedService.assinaturaUri ? (
-                <View style={styles.signatureBox}>
-                  <Image
-                    source={{ uri: selectedService.assinaturaUri }}
-                    style={styles.signatureImage}
-                    contentFit="contain"
-                  />
-                </View>
-              ) : (
-                <View style={styles.signatureBox}>
-                  <Text style={styles.signaturePlaceholder}>Nenhuma assinatura enviada</Text>
-                </View>
-              )}
               {selectedService.assinadoPor ? (
-                <Text style={styles.signedByText}>Assinado por {selectedService.assinadoPor}</Text>
+                <Text style={[styles.signedByText, { marginHorizontal: 16, marginBottom: 12 }]}>Assinado por {selectedService.assinadoPor}</Text>
               ) : null}
 
-              <TouchableOpacity
-                style={styles.closeDetailButton}
-                activeOpacity={0.9}
-                onPress={closeAllDetailModals}
-              >
-                <Text style={styles.closeDetailButtonText}>Fechar</Text>
-              </TouchableOpacity>
+              <View style={{
+                flexDirection: 'row',
+                gap: 12,
+                marginHorizontal: 16,
+                marginTop: 8,
+                marginBottom: 20,
+              }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#cbd5e1',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#fff',
+                  }}
+                  activeOpacity={0.8}
+                  onPress={closeAllDetailModals}
+                >
+                  <Text style={{ color: '#475569', fontSize: 15, fontWeight: '700' }}>Fechar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    flex: 2,
+                    height: 48,
+                    borderRadius: 12,
+                    backgroundColor: '#7A1A1A',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 8,
+                  }}
+                  activeOpacity={0.8}
+                  onPress={handleGerarRelatorio}
+                >
+                  <Feather name="file-text" size={16} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Gerar Relatório</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </SafeAreaView>
         ) : null}
       </Modal>
-      <ImageZoomModal
-        visible={!!zoomedImage}
-        imageUri={zoomedImage}
-        onClose={() => setZoomedImage(null)}
-      />
+        <Modal
+          visible={isChecklistDetailVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setChecklistDetailVisible(false)}
+        >
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'flex-end',
+          }}>
+            <View style={{
+              backgroundColor: '#f8fafc',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              maxHeight: '80%',
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Feather name="check-square" size={20} color="#7A1A1A" />
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#1e293b' }}>Checklist de Instalação</Text>
+                </View>
+                <TouchableOpacity onPress={() => setChecklistDetailVisible(false)}>
+                  <Feather name="x" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
+                {selectedService?.checklist?.map((ci: any, idx: number) => (
+                  <View
+                    key={`${ci.label}-${idx}`}
+                    style={[styles.checklistItem, ci.done ? styles.checklistItemDone : styles.checklistItemPending]}
+                  >
+                    {ci.done ? (
+                      <View style={styles.checklistIconDone}>
+                        <Feather name="check" size={14} color="#fff" />
+                      </View>
+                    ) : (
+                      <View style={styles.checklistIconPending} />
+                    )}
+                    <Text style={[styles.checklistLabel, !ci.done && styles.checklistLabelPending]}>
+                      {ci.label}
+                    </Text>
+                  </View>
+                ))}
+
+                <View style={[styles.checklistSummaryBox, { marginBottom: 10 }]}>
+                  <Feather name="check" size={14} color="#2563eb" />
+                  <Text style={styles.checklistSummaryText}>
+                    {selectedService?.checklist?.filter((c: any) => c.done).length || 0} de {selectedService?.checklist?.length || 0} itens realizados
+                  </Text>
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#7A1A1A',
+                  height: 48,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 10,
+                }}
+                onPress={() => setChecklistDetailVisible(false)}
+              >
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        <ImageZoomModal
+          visible={!!zoomedImage}
+          imageUri={normalizeSignatureUri(zoomedImage)}
+          onClose={() => setZoomedImage(null)}
+        />
       </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 20,
+  },
+  successBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  detailStatBox: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 14,
+  },
+  detailStatLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  detailStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+  gridCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 14,
+    minHeight: 120,
+  },
+  gridCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  gridCardSub: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  badgeStyle: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  circleIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   safeArea: { 
     flex: 1, 
     backgroundColor: '#7A1A1A' 

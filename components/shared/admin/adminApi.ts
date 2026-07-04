@@ -174,24 +174,57 @@ export type AdminServiceFinalizacao = {
 };
 
 const normalizeFinalizacaoChecklist = (value: unknown): { item: string; status: boolean }[] => {
-  if (!Array.isArray(value)) return [];
+  if (!value) return [];
 
-  return value
-    .map((entry: any, index: number) => {
-      if (typeof entry === 'string') {
-        const item = entry.trim();
-        return item ? { item, status: true } : null;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry: any, index: number) => {
+        if (typeof entry === 'string') {
+          const item = entry.trim();
+          return item ? { item, status: true } : null;
+        }
+
+        const item = String(entry?.item || entry?.label || entry?.nome || entry?.descricao || `Item ${index + 1}`).trim();
+        return item
+          ? {
+              item,
+              status: Boolean(entry?.status ?? entry?.done ?? entry?.checked ?? true),
+            }
+          : null;
+      })
+      .filter(Boolean) as { item: string; status: boolean }[];
+  }
+
+  if (typeof value === 'object') {
+    const CHECKLIST_KEY_LABELS: Record<string, string> = {
+      instalacao_concluida: 'Instalação da fechadura digital concluída',
+      cadastro_senhas: 'Configuração e cadastro de senhas/digitais realizado',
+      teste_abertura: 'Teste de abertura com digital/senha/cartão aprovado',
+      cobranca_feita: 'Cobrança feita',
+      cobranca: 'Cobrança feita',
+      teste_travamento: 'Teste de travamento automático funcionando',
+      orientacao_cliente: 'Orientação ao cliente sobre uso e manutenção',
+      sincronizacao_app: 'Sincronização com aplicativo (se aplicável)',
+      entrega_cartoes: 'Entrega de cartões/chaves extras e manual',
+      limpeza_local: 'Limpeza do local de instalação',
+    };
+
+    const list: { item: string; status: boolean }[] = [];
+    const keys = Object.keys(value);
+    for (const key of keys) {
+      if (key === '_id' || key === 'servico_id' || key === 'created_at' || key === 'updated_at') {
+        continue;
       }
+      const val = (value as any)[key];
+      if (typeof val === 'boolean' || typeof val === 'number' || typeof val === 'string') {
+        const label = CHECKLIST_KEY_LABELS[key] || key;
+        list.push({ item: label, status: Boolean(val) });
+      }
+    }
+    return list;
+  }
 
-      const item = String(entry?.item || entry?.label || entry?.nome || entry?.descricao || `Item ${index + 1}`).trim();
-      return item
-        ? {
-            item,
-            status: Boolean(entry?.status ?? entry?.done ?? entry?.checked ?? true),
-          }
-        : null;
-    })
-    .filter(Boolean) as { item: string; status: boolean }[];
+  return [];
 };
 
 const normalizeAdminServiceFinalizacao = (payload: unknown): AdminServiceFinalizacao | null => {

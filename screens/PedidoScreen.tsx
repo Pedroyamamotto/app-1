@@ -17,6 +17,7 @@ import { API_BASE_URL, apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 import { useUser } from '../context/UserContext';
 import { appendBase64ToForm, appendFileDataToForm, isWeb, cleanText } from '../utils/platformUtils';
+import { gerarRelatorioPDF } from '../utils/report';
 
 type ServiceData = {
   _id?: string;
@@ -59,6 +60,16 @@ type ServiceData = {
   tempo_trabalhado_ms?: number;
   quantidade_pausas?: number;
   iniciado_em?: string | null;
+  checklist?: string[];
+  has_comprovante?: boolean;
+  comprovante_pagamento?: any;
+  assinatura_url?: string;
+  assinatura?: string;
+  fotos_servico_uris?: string[];
+  fotosServicoUris?: string[];
+  fotoUri?: string;
+  fotosContextoUris?: string[];
+  fotos_contexto_uris?: string[];
 };
 
 type UploadedPhoto = {
@@ -71,6 +82,18 @@ type ChecklistCompletePayload = {
   items: string[];
   obs?: string;
   receiptPhoto?: UploadedPhoto | null;
+};
+
+const normalizeSignatureUri = (uri: string | null | undefined) => {
+  if (!uri) return null;
+  const trimmed = uri.trim();
+  if (trimmed.startsWith('http') || trimmed.startsWith('file:') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  if (trimmed.length > 50) {
+    return `data:image/png;base64,${trimmed}`;
+  }
+  return trimmed;
 };
 
 export default function PedidoScreen() {
@@ -93,6 +116,7 @@ export default function PedidoScreen() {
   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
   const [isPauseModalVisible, setPauseModalVisible] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [isChecklistDetailVisible, setChecklistDetailVisible] = useState(false);
   const [completionData, setCompletionData] = useState<{ 
     checklist: string[]; 
     checklistObs: string; 
@@ -644,23 +668,154 @@ export default function PedidoScreen() {
       return `${formatted} às ${timeFormatted}`;
     })();
 
-    const hasChecklist = (finalizacao?.checklist?.length > 0) || (finalizacao?.itens_checklist?.length > 0);
-    const hasPhotos = (finalizacao?.fotos?.length > 0) || (contextPhotoUrls?.length > 0);
-    const hasSignature = !!(finalizacao?.assinatura || service?.assinaturaUri);
+    const standardChecklistItems = [
+      'Instalação da fechadura digital concluída',
+      'Configuração e cadastro de senhas/digitais realizado',
+      'Teste de abertura com digital/senha/cartão aprovado',
+      'Cobrança feita',
+      'Teste de travamento automático funcionando',
+      'Orientação ao cliente sobre uso e manutenção',
+      'Sincronização com aplicativo (se aplicável)',
+      'Entrega de cartões/chaves extras e manual',
+      'Limpeza do local de instalação',
+    ];
+
+    const normalizedChecklist = (() => {
+      if (Array.isArray(service?.checklist) && service.checklist.length > 0) {
+        const checkedSet = new Set(service.checklist.map(item => String(item).trim().toLowerCase()));
+        return standardChecklistItems.map((item) => ({
+          label: item,
+          done: checkedSet.has(item.trim().toLowerCase()),
+        }));
+      }
+      const rawCheck = finalizacao?.checklist || finalizacao?.itens_checklist || finalizacao?.itensChecklist;
+      if (Array.isArray(rawCheck) && rawCheck.length > 0) {
+        if (typeof rawCheck[0] === 'string') {
+          const checkedSet = new Set(rawCheck.map(item => String(item).trim().toLowerCase()));
+          return standardChecklistItems.map((item) => ({
+            label: item,
+            done: checkedSet.has(item.trim().toLowerCase()),
+          }));
+        }
+        return rawCheck.map((c: any) => ({
+          label: String(c?.item || c?.label || c?.nome || ''),
+          done: Boolean(c?.status ?? c?.done ?? c?.checked),
+        })).filter(c => c.label);
+      }
+      if (rawCheck && typeof rawCheck === 'object') {
+        const CHECKLIST_KEY_LABELS: Record<string, string> = {
+          instalacao_concluida: 'Instalação da fechadura digital concluída',
+          cadastro_senhas: 'Configuração e cadastro de senhas/digitais realizado',
+          teste_abertura: 'Teste de abertura com digital/senha/cartão aprovado',
+          cobranca_feita: 'Cobrança feita',
+          cobranca: 'Cobrança feita',
+          teste_travamento: 'Teste de travamento automático funcionando',
+          orientacao_cliente: 'Orientação ao cliente sobre uso e manutenção',
+          sincronizacao_app: 'Sincronização com aplicativo (se aplicável)',
+          entrega_cartoes: 'Entrega de cartões/chaves extras e manual',
+          limpeza_local: 'Limpeza do local de instalação',
+        };
+        const mapped: { label: string; done: boolean }[] = [];
+        for (const key of Object.keys(rawCheck)) {
+          if (key === '_id' || key === 'servico_id' || key === 'created_at' || key === 'updated_at') continue;
+          const val = (rawCheck as any)[key];
+          if (typeof val === 'boolean' || typeof val === 'number' || typeof val === 'string') {
+            mapped.push({
+              label: CHECKLIST_KEY_LABELS[key] || key,
+              done: Boolean(val),
+            });
+          }
+        }
+        if (mapped.length > 0) return mapped;
+      }
+      return [];
+    })();
+
+    const hasChecklist = normalizedChecklist.length > 0;
     
-    const hasPhotoInstalacao = !!completionPhotoUrl;
-    const motivoSemComprovante = service?.motivo_sem_comprovante || finalizacao?.motivoSemComprovante || (service as any)?.motivoSemComprovante;
+    // Multiple service photos support
+    const servicePhotos: string[] = useMemo(() => {
+      const photos: string[] = [];
+      if (service?.fotos_servico_uris && Array.isArray(service.fotos_servico_uris)) {
+        photos.push(...service.fotos_servico_uris);
+      }
+      if (finalizacao?.fotosServico && Array.isArray(finalizacao.fotosServico)) {
+        photos.push(...finalizacao.fotosServico);
+      }
+      if (finalizacao?.fotos && Array.isArray(finalizacao.fotos)) {
+        photos.push(...finalizacao.fotos);
+      }
+      const singlePhoto = service?.fotoUri || (service?.foto_url as string) || (completionPhotoUrl as string);
+      if (singlePhoto && !photos.includes(singlePhoto)) {
+        photos.push(singlePhoto);
+      }
+      return photos.filter(Boolean);
+    }, [service, finalizacao, completionPhotoUrl]);
+
+    const hasPhotoServico = servicePhotos.length > 0;
+
+    const hasReceiptPhoto = !!(
+      service?.has_comprovante ||
+      service?.comprovante_pagamento ||
+      completionData.receiptPhoto ||
+      finalizacao?.comprovanteUri
+    );
+    const motivoSemComprovante = service?.motivo_sem_comprovante || service?.motivoSemComprovante || finalizacao?.motivoSemComprovante || completionData.reasonNoReceipt;
+    
+    const signatureUri = service?.assinatura_url || service?.assinaturaUri || finalizacao?.assinatura || service?.assinatura;
+    const hasSignature = !!signatureUri;
+
+    const contextPhotoUrls: string[] = useMemo(() => {
+      const urls: string[] = [];
+      if (service?.fotosContextoUris && Array.isArray(service.fotosContextoUris)) {
+        urls.push(...service.fotosContextoUris);
+      }
+      if (finalizacao?.fotosContexto && Array.isArray(finalizacao.fotosContexto)) {
+        urls.push(...finalizacao.fotosContexto);
+      }
+      if (service?.fotos_contexto_uris && Array.isArray(service.fotos_contexto_uris)) {
+        urls.push(...service.fotos_contexto_uris);
+      }
+      return urls.filter(Boolean);
+    }, [service, finalizacao]);
 
     const checklistStatus = hasChecklist ? 'Concluído' : 'Não enviado';
-    const photosStatus = hasPhotos ? 'Enviada' : 'Não enviada';
+    const photoServicoStatus = hasPhotoServico ? `${servicePhotos.length} Enviada(s)` : 'Não enviada';
+    const contextPhotoStatus = contextPhotoUrls.length > 0 ? `${contextPhotoUrls.length} Enviada(s)` : 'Não enviadas';
     const signatureStatus = hasSignature ? 'Enviada' : 'Não enviada';
     
-    let photoInstalacaoStatus = 'Não enviada';
-    if (hasPhotoInstalacao) {
-      photoInstalacaoStatus = 'Enviada';
+    let receiptStatus = 'Não enviado';
+    if (hasReceiptPhoto) {
+      receiptStatus = 'Enviado';
     } else if (motivoSemComprovante) {
-      photoInstalacaoStatus = 'Sem Comprovante';
+      receiptStatus = 'Sem Comprovante';
     }
+
+    const handleGerarRelatorio = async () => {
+      const data = {
+        numeroPedido: service?.numero_pedido || '-',
+        status: isConcluido ? 'Concluído' : 'Não Realizado',
+        dataConclusao: finalizacaoDateStr,
+        cliente: clientName,
+        telefone: phone,
+        endereco: address,
+        tecnico: service?.tecnico || 'Técnico',
+        descricao: lockName,
+        formaPagamento: service?.forma_de_pagamento || '-',
+        descricaoPagamento: service?.descricao_pagamento?.replace(/pix/gi, '').trim() || '-',
+        chavePagamento: service?.chaveDePagamento || '-',
+        valor: valorFormatado,
+        observacoes: service?.observacoes || '-',
+        duracaoAtendimentoMin: Math.round((service?.tempo_trabalhado_ms || 0) / 60000),
+        pausas: service?.quantidade_pausas || 0,
+        checklist: normalizedChecklist,
+        fotosServico: servicePhotos,
+        fotosContexto: contextPhotoUrls,
+        comprovanteUri: receiptPhotoUrl ? (typeof receiptPhotoUrl === 'string' ? receiptPhotoUrl : receiptPhotoUrl.uri) : undefined,
+        assinaturaUri: signatureUri || undefined,
+      };
+      await gerarRelatorioPDF(data);
+    };
 
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -730,201 +885,269 @@ export default function PedidoScreen() {
             </View>
 
             <View style={styles.infoBlock}>
-              <Text style={[styles.cardSectionTitle, { marginBottom: 12 }]}>Detalhes do Serviço</Text>
+              <Text style={[styles.cardSectionTitle, { marginBottom: 16 }]}>Detalhes do Serviço</Text>
               
-              <View style={styles.detailRow}>
-                <Text style={styles.detailRowLabel}>Forma de Pagamento</Text>
-                <Text style={styles.detailRowValue}>{service?.forma_de_pagamento || '-'}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="credit-card" size={16} color="#64748b" />
+                  <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Forma de Pagamento</Text>
+                </View>
+                <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>{service?.forma_de_pagamento || '-'}</Text>
               </View>
               <View style={styles.divider} />
               
-              <View style={styles.detailRow}>
-                <Text style={styles.detailRowLabel}>Descrição</Text>
-                <Text style={styles.detailRowValue}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="file-text" size={16} color="#64748b" />
+                  <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Descrição</Text>
+                </View>
+                <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>
                   {service?.descricao_pagamento?.replace(/pix/gi, '').trim() || '-'}
                 </Text>
               </View>
               <View style={styles.divider} />
               
-              <View style={styles.detailRow}>
-                <Text style={styles.detailRowLabel}>Chave</Text>
-                <Text style={styles.detailRowValue}>{service?.chaveDePagamento || '-'}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="key" size={16} color="#64748b" />
+                  <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Chave</Text>
+                </View>
+                <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>{service?.chaveDePagamento || '-'}</Text>
               </View>
               <View style={styles.divider} />
               
-              <View style={styles.detailRow}>
-                <Text style={styles.detailRowLabel}>Valor</Text>
-                <Text style={[styles.detailRowValue, { fontWeight: '700' }]}>{valorFormatado}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="dollar-sign" size={16} color="#64748b" />
+                  <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Valor</Text>
+                </View>
+                <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700' }}>{valorFormatado}</Text>
               </View>
               <View style={styles.divider} />
               
-              <View style={styles.detailRow}>
-                <Text style={styles.detailRowLabel}>Observações</Text>
-                <Text style={styles.detailRowValue}>{service?.observacoes || '-'}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="edit-3" size={16} color="#64748b" />
+                  <Text style={{ fontSize: 14, color: '#475569', fontWeight: '500' }}>Observações</Text>
+                </View>
+                <Text style={{ fontSize: 14, color: '#1e293b', fontWeight: '700', flex: 1, textAlign: 'right', marginLeft: 20 }} numberOfLines={2}>
+                  {service?.observacoes || '-'}
+                </Text>
               </View>
-            </View>
 
-            <View style={[styles.successBanner, { backgroundColor: isConcluido ? '#f6ffed' : '#fff1f0', borderColor: isConcluido ? '#b7eb8f' : '#ffa39e' }]}>
-              <Feather name={statusIcon} size={16} color={statusIconColor} />
-              <Text style={[styles.successBannerText, { color: isConcluido ? '#389e0d' : '#cf1322' }]}>
-                {isConcluido ? 'Concluído em: ' : 'Não realizado em: '}{finalizacaoDateStr}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
-              <View style={[styles.statBox, { flex: 1 }]}>
-                <View style={[styles.circleIconBg, { backgroundColor: '#e6f7ff', width: 36, height: 36, borderRadius: 18 }]}>
-                  <Feather name="clock" size={16} color="#1890ff" />
-                </View>
-                <View style={{ marginTop: 8 }}>
-                  <Text style={styles.statLabel}>Duração do Atendimento</Text>
-                  <Text style={styles.statValue}>{Math.round((service?.tempo_trabalhado_ms || 0) / 60000)} min</Text>
-                </View>
+              {/* Success Banner nested inside card */}
+              <View style={[styles.successBanner, { 
+                backgroundColor: isConcluido ? '#eefdf5' : '#fff1f0', 
+                borderColor: isConcluido ? '#b7eb8f' : '#ffa39e',
+                marginTop: 16,
+                marginBottom: 16
+              }]}>
+                <Feather name={statusIcon} size={16} color={statusIconColor} />
+                <Text style={[styles.successBannerText, { color: isConcluido ? '#1e293b' : '#cf1322', fontWeight: '500' }]}>
+                  {isConcluido ? 'Concluído em: ' : 'Não realizado em: '}{finalizacaoDateStr}
+                </Text>
               </View>
-              
-              <View style={[styles.statBox, { flex: 1 }]}>
-                <View style={[styles.circleIconBg, { backgroundColor: '#f9f0ff', width: 36, height: 36, borderRadius: 18 }]}>
-                  <Feather name="pause-circle" size={16} color="#722ed1" />
-                </View>
-                <View style={{ marginTop: 8 }}>
-                  <Text style={styles.statLabel}>Pausas Realizadas</Text>
-                  <Text style={styles.statValue}>{service?.quantidade_pausas || 0}</Text>
-                </View>
-              </View>
-            </View>
 
-            <View style={{ gap: 12 }}>
+              {/* Stats row nested inside card */}
               <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity 
-                  style={[styles.gridCard, { flex: 1 }]}
-                  activeOpacity={hasChecklist ? 0.7 : 1}
-                  onPress={() => {
-                    if (hasChecklist) {
+                <View style={[styles.statBox, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                  <View style={[styles.circleIconBg, { backgroundColor: '#e6f7ff', width: 36, height: 36, borderRadius: 18 }]}>
+                    <Feather name="clock" size={16} color="#1890ff" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.statLabel, { fontSize: 11 }]}>Duração do Atendimento</Text>
+                    <Text style={[styles.statValue, { fontSize: 16, marginTop: 0 }]}>{Math.round((service?.tempo_trabalhado_ms || 0) / 60000)} min</Text>
+                  </View>
+                </View>
+                
+                <View style={[styles.statBox, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+                  <View style={[styles.circleIconBg, { backgroundColor: '#f9f0ff', width: 36, height: 36, borderRadius: 18 }]}>
+                    <Feather name="pause-circle" size={16} color="#722ed1" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.statLabel, { fontSize: 11 }]}>Pausas Realizadas</Text>
+                    <Text style={[styles.statValue, { fontSize: 16, marginTop: 0 }]}>{service?.quantidade_pausas || 0}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={{ gap: 12, marginTop: 16 }}>
+              {/* Card 1: Checklist de Instalação */}
+              <TouchableOpacity 
+                style={styles.gridCard}
+                activeOpacity={hasChecklist ? 0.7 : 1}
+                onPress={() => {
+                  if (hasChecklist) {
+                    setChecklistDetailVisible(true);
+                  }
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <View style={[styles.circleIconBg, { backgroundColor: '#e6ffed' }]}>
+                    <Feather name="clipboard" size={16} color="#389e0d" />
+                  </View>
+                  <View style={[styles.badgeStyle, { backgroundColor: hasChecklist ? '#dcfce7' : '#fee2e2' }]}>
+                    <Text style={[styles.badgeText, { color: hasChecklist ? '#15803d' : '#ef4444' }]}>{checklistStatus}</Text>
+                  </View>
+                </View>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.gridCardTitle}>Checklist de Instalação</Text>
+                  <Text style={styles.gridCardSub}>
+                    {hasChecklist ? 'Checklist de instalação salvo.' : 'Este serviço ainda não possui checklist salvo no backend.'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Card 2: Foto do Serviço */}
+              <TouchableOpacity 
+                style={styles.gridCard}
+                activeOpacity={hasPhotoServico ? 0.7 : 1}
+                onPress={() => {
+                  if (hasPhotoServico) {
+                    if (servicePhotos.length === 1) {
+                      setZoomedImage(servicePhotos[0]);
+                    } else {
                       Alert.alert(
-                        'Itens do Checklist',
-                        finalizacao?.checklist?.map((c: any) => `${c.done ? '✓' : '✗'} ${c.label}`).join('\n') || 
-                        'Checklist concluído'
+                        'Fotos do Serviço',
+                        `Deseja visualizar qual das ${servicePhotos.length} fotos do serviço?`,
+                        servicePhotos.map((uri, idx) => ({
+                          text: `Visualizar Foto ${idx + 1}`,
+                          onPress: () => setZoomedImage(uri)
+                        })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
                       );
                     }
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <View style={[styles.circleIconBg, { backgroundColor: '#e6ffed' }]}>
-                      <Feather name="clipboard" size={16} color="#389e0d" />
-                    </View>
-                    <View style={[styles.badgeStyle, { backgroundColor: hasChecklist ? '#dcfce7' : '#fee2e2' }]}>
-                      <Text style={[styles.badgeText, { color: hasChecklist ? '#15803d' : '#ef4444' }]}>{checklistStatus}</Text>
-                    </View>
+                  }
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <View style={[styles.circleIconBg, { backgroundColor: '#eff6ff' }]}>
+                    <Feather name="camera" size={16} color="#2563eb" />
                   </View>
-                  <View style={{ marginTop: 12 }}>
-                    <Text style={styles.gridCardTitle}>Checklist de Instalação</Text>
-                    <Text style={styles.gridCardSub}>
-                      {hasChecklist ? 'Checklist de instalação salvo.' : 'Este serviço ainda não possui checklist salvo no backend.'}
+                  <View style={[styles.badgeStyle, { backgroundColor: hasPhotoServico ? '#dcfce7' : '#fee2e2' }]}>
+                    <Text style={[styles.badgeText, { color: hasPhotoServico ? '#15803d' : '#ef4444' }]}>{photoServicoStatus}</Text>
+                  </View>
+                </View>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.gridCardTitle}>Foto do Serviço</Text>
+                  <Text style={styles.gridCardSub}>
+                    {hasPhotoServico ? 'Clique para visualizar as fotos do serviço.' : 'Nenhuma foto de serviço enviada.'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Card 3: Fotos de Contexto */}
+              <TouchableOpacity 
+                style={styles.gridCard}
+                activeOpacity={contextPhotoUrls.length > 0 ? 0.7 : 1}
+                onPress={() => {
+                  if (contextPhotoUrls.length > 0) {
+                    if (contextPhotoUrls.length === 1) {
+                      setZoomedImage(contextPhotoUrls[0]);
+                    } else {
+                      Alert.alert(
+                        'Fotos de Contexto',
+                        `Deseja visualizar qual das ${contextPhotoUrls.length} fotos de contexto?`,
+                        contextPhotoUrls.map((uri, idx) => ({
+                          text: `Visualizar Foto ${idx + 1}`,
+                          onPress: () => setZoomedImage(uri)
+                        })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
+                      );
+                    }
+                  }
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <View style={[styles.circleIconBg, { backgroundColor: '#e0f2fe' }]}>
+                    <Feather name="image" size={16} color="#0284c7" />
+                  </View>
+                  <View style={[styles.badgeStyle, { backgroundColor: contextPhotoUrls.length > 0 ? '#dcfce7' : '#fee2e2' }]}>
+                    <Text style={[styles.badgeText, { color: contextPhotoUrls.length > 0 ? '#15803d' : '#ef4444' }]}>
+                      {contextPhotoUrls.length > 0 ? `${contextPhotoUrls.length} Enviada(s)` : 'Não enviadas'}
                     </Text>
                   </View>
-                </TouchableOpacity>
+                </View>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.gridCardTitle}>Fotos de Contexto</Text>
+                  <Text style={styles.gridCardSub}>
+                    {contextPhotoUrls.length > 0 ? 'Clique para visualizar as fotos de contexto.' : 'Nenhuma foto de contexto enviada.'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
 
-                <TouchableOpacity 
-                  style={[styles.gridCard, { flex: 1 }]}
-                  activeOpacity={hasPhotos ? 0.7 : 1}
-                  onPress={() => {
-                    if (hasPhotos) {
-                      const firstUrl = finalizacao?.fotos?.[0] || contextPhotoUrls?.[0];
-                      if (firstUrl) setZoomedImage(firstUrl);
-                    }
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <View style={[styles.circleIconBg, { backgroundColor: '#eff6ff' }]}>
-                      <Feather name="camera" size={16} color="#2563eb" />
-                    </View>
-                    <View style={[styles.badgeStyle, { backgroundColor: hasPhotos ? '#dcfce7' : '#fee2e2' }]}>
-                      <Text style={[styles.badgeText, { color: hasPhotos ? '#15803d' : '#ef4444' }]}>{photosStatus}</Text>
-                    </View>
+              {/* Card 4: Comprovante de Pagamento */}
+              <TouchableOpacity 
+                style={styles.gridCard}
+                activeOpacity={(hasReceiptPhoto || motivoSemComprovante) ? 0.7 : 1}
+                onPress={() => {
+                  if (hasReceiptPhoto && receiptPhotoUrl) {
+                    setZoomedImage(typeof receiptPhotoUrl === 'string' ? receiptPhotoUrl : receiptPhotoUrl.uri);
+                  } else if (motivoSemComprovante) {
+                    Alert.alert('Sem Comprovante', `Motivo informado pelo técnico:\n\n"${motivoSemComprovante}"`);
+                  }
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <View style={[styles.circleIconBg, { backgroundColor: '#fdf4ff' }]}>
+                    <Feather name="dollar-sign" size={16} color="#c084fc" />
                   </View>
-                  <View style={{ marginTop: 12 }}>
-                    <Text style={styles.gridCardTitle}>Foto do Serviço</Text>
-                    <Text style={styles.gridCardSub}>
-                      {hasPhotos ? `${finalizacao?.fotos?.length || contextPhotoUrls?.length} foto(s) enviada(s).` : 'Nenhuma foto de serviço enviada.'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity 
-                  style={[styles.gridCard, { flex: 1 }]}
-                  activeOpacity={(hasPhotoInstalacao || motivoSemComprovante) ? 0.7 : 1}
-                  onPress={() => {
-                    if (hasPhotoInstalacao) {
-                      setZoomedImage(completionPhotoUrl);
-                    } else if (motivoSemComprovante) {
-                      Alert.alert('Sem Comprovante', `Motivo informado pelo técnico:\n\n"${motivoSemComprovante}"`);
+                  <View style={[
+                    styles.badgeStyle, 
+                    { 
+                      backgroundColor: receiptStatus === 'Enviado' 
+                        ? '#dcfce7' 
+                        : receiptStatus === 'Sem Comprovante' 
+                          ? '#fef3c7' 
+                          : '#fee2e2' 
                     }
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <View style={[styles.circleIconBg, { backgroundColor: '#fdf4ff' }]}>
-                      <Feather name="image" size={16} color="#c084fc" />
-                    </View>
-                    <View style={[
-                      styles.badgeStyle, 
+                  ]}>
+                    <Text style={[
+                      styles.badgeText, 
                       { 
-                        backgroundColor: photoInstalacaoStatus === 'Enviada' 
-                          ? '#dcfce7' 
-                          : photoInstalacaoStatus === 'Sem Comprovante' 
-                            ? '#fef3c7' 
-                            : '#fee2e2' 
+                        color: receiptStatus === 'Enviado' 
+                          ? '#15803d' 
+                          : receiptStatus === 'Sem Comprovante' 
+                            ? '#d97706' 
+                            : '#ef4444' 
                       }
-                    ]}>
-                      <Text style={[
-                        styles.badgeText, 
-                        { 
-                          color: photoInstalacaoStatus === 'Enviada' 
-                            ? '#15803d' 
-                            : photoInstalacaoStatus === 'Sem Comprovante' 
-                              ? '#d97706' 
-                              : '#ef4444' 
-                        }
-                      ]}>{photoInstalacaoStatus}</Text>
-                    </View>
+                    ]}>{receiptStatus}</Text>
                   </View>
-                  <View style={{ marginTop: 12 }}>
-                    <Text style={styles.gridCardTitle}>Foto de Instalação</Text>
-                    <Text style={styles.gridCardSub} numberOfLines={2}>
-                      {photoInstalacaoStatus === 'Enviada' 
-                        ? 'Foto de instalação enviada pelo técnico.' 
-                        : photoInstalacaoStatus === 'Sem Comprovante' 
-                          ? `Motivo: "${motivoSemComprovante}"`
-                          : 'Nenhuma foto de instalação enviada.'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
+                </View>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.gridCardTitle}>Comprovante de Pagamento</Text>
+                  <Text style={styles.gridCardSub} numberOfLines={2}>
+                    {receiptStatus === 'Enviado' 
+                      ? 'Comprovante de pagamento enviado.' 
+                      : receiptStatus === 'Sem Comprovante' 
+                        ? `Motivo: "${motivoSemComprovante}"`
+                        : 'Nenhum comprovante enviado.'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
 
-                <TouchableOpacity 
-                  style={[styles.gridCard, { flex: 1 }]}
-                  activeOpacity={hasSignature ? 0.7 : 1}
-                  onPress={() => {
-                    const sigUri = finalizacao?.assinatura || service?.assinaturaUri;
-                    if (sigUri) setZoomedImage(sigUri);
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <View style={[styles.circleIconBg, { backgroundColor: '#fff7ed' }]}>
-                      <Feather name="edit-3" size={16} color="#ea580c" />
-                    </View>
-                    <View style={[styles.badgeStyle, { backgroundColor: hasSignature ? '#dcfce7' : '#fee2e2' }]}>
-                      <Text style={[styles.badgeText, { color: hasSignature ? '#15803d' : '#ef4444' }]}>{signatureStatus}</Text>
-                    </View>
+              {/* Card 5: Assinatura do Cliente */}
+              <TouchableOpacity 
+                style={styles.gridCard}
+                activeOpacity={hasSignature ? 0.7 : 1}
+                onPress={() => {
+                  if (signatureUri) setZoomedImage(signatureUri);
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <View style={[styles.circleIconBg, { backgroundColor: '#fff7ed' }]}>
+                    <Feather name="edit-3" size={16} color="#ea580c" />
                   </View>
-                  <View style={{ marginTop: 12 }}>
-                    <Text style={styles.gridCardTitle}>Assinatura do Cliente</Text>
-                    <Text style={styles.gridCardSub}>
-                      {hasSignature ? 'Assinatura do cliente salva.' : 'Nenhuma assinatura enviada.'}
-                    </Text>
+                  <View style={[styles.badgeStyle, { backgroundColor: hasSignature ? '#dcfce7' : '#fee2e2' }]}>
+                    <Text style={[styles.badgeText, { color: hasSignature ? '#15803d' : '#ef4444' }]}>{signatureStatus}</Text>
                   </View>
-                </TouchableOpacity>
-              </View>
+                </View>
+                <View style={{ marginTop: 12 }}>
+                  <Text style={styles.gridCardTitle}>Assinatura do Cliente</Text>
+                  <Text style={styles.gridCardSub}>
+                    {hasSignature ? 'Assinatura do cliente salva.' : 'Nenhuma assinatura enviada.'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
           </ScrollView>
 
@@ -932,7 +1155,7 @@ export default function PedidoScreen() {
             <TouchableOpacity 
               style={styles.gerarRelatorioBtn} 
               activeOpacity={0.8}
-              onPress={() => Alert.alert('Relatório', 'Função de gerar relatório iniciada. Carregando documento...')}
+              onPress={handleGerarRelatorio}
             >
               <Feather name="file-text" size={18} color="#fff" />
               <Text style={styles.gerarRelatorioBtnText}>Gerar Relatório</Text>
@@ -948,9 +1171,81 @@ export default function PedidoScreen() {
           </View>
         </View>
 
+        <Modal
+          visible={isChecklistDetailVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setChecklistDetailVisible(false)}
+        >
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'flex-end',
+          }}>
+            <View style={{
+              backgroundColor: '#f8fafc',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              maxHeight: '80%',
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Feather name="check-square" size={20} color="#7A1A1A" />
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#1e293b' }}>Checklist de Instalação</Text>
+                </View>
+                <TouchableOpacity onPress={() => setChecklistDetailVisible(false)}>
+                  <Feather name="x" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
+                {normalizedChecklist.map((ci: any, idx: number) => (
+                  <View
+                    key={`${ci.label}-${idx}`}
+                    style={[styles.checklistItem, ci.done ? styles.checklistItemDone : styles.checklistItemPending]}
+                  >
+                    {ci.done ? (
+                      <View style={styles.checklistIconDone}>
+                        <Feather name="check" size={14} color="#fff" />
+                      </View>
+                    ) : (
+                      <View style={styles.checklistIconPending} />
+                    )}
+                    <Text style={[styles.checklistLabel, !ci.done && styles.checklistLabelPending]}>
+                      {ci.label}
+                    </Text>
+                  </View>
+                ))}
+
+                <View style={[styles.checklistSummaryBox, { marginBottom: 10 }]}>
+                  <Feather name="check" size={14} color="#2563eb" />
+                  <Text style={styles.checklistSummaryText}>
+                    {normalizedChecklist.filter((c: any) => c.done).length} de {normalizedChecklist.length} itens realizados
+                  </Text>
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#7A1A1A',
+                  height: 48,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 10,
+                }}
+                onPress={() => setChecklistDetailVisible(false)}
+              >
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
         <ImageZoomModal
           visible={!!zoomedImage}
-          imageUri={zoomedImage}
+          imageUri={normalizeSignatureUri(zoomedImage)}
           onClose={() => setZoomedImage(null)}
         />
       </SafeAreaView>
@@ -1283,7 +1578,7 @@ export default function PedidoScreen() {
 
       <ImageZoomModal
         visible={!!zoomedImage}
-        imageUri={zoomedImage}
+        imageUri={normalizeSignatureUri(zoomedImage)}
         onClose={() => setZoomedImage(null)}
       />
 
@@ -1577,15 +1872,21 @@ const styles = StyleSheet.create({
   },
   finalizedFooter: {
     position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 20,
-    backgroundColor: '#f0f2f5',
-    gap: 10,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    gap: 12,
   },
   gerarRelatorioBtn: {
+    flex: 2,
     backgroundColor: '#7A1A1A',
-    height: 52,
+    height: 48,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1594,19 +1895,78 @@ const styles = StyleSheet.create({
   },
   gerarRelatorioBtnText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   fecharBtn: {
-    backgroundColor: '#e2e8f0',
-    height: 52,
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    height: 48,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   fecharBtnText: {
-    color: '#334155',
-    fontSize: 16,
+    color: '#475569',
+    fontSize: 15,
     fontWeight: '700',
+  },
+  checklistItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  checklistItemDone: {
+    backgroundColor: '#f0fdf4',
+  },
+  checklistItemPending: {
+    backgroundColor: '#f8fafc',
+  },
+  checklistIconDone: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  checklistIconPending: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: '#cbd5e1',
+    marginTop: 1,
+    flexShrink: 0,
+  },
+  checklistLabel: {
+    color: '#0f172a',
+    fontSize: 14,
+    flex: 1,
+    lineHeight: 20,
+  },
+  checklistLabelPending: {
+    color: '#94a3b8',
+  },
+  checklistSummaryBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 4,
+    marginBottom: 18,
+  },
+  checklistSummaryText: {
+    color: '#2563eb',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

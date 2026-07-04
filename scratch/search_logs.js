@@ -10,8 +10,8 @@ async function run() {
 
   for await (const line of rl) {
     const obj = JSON.parse(line);
-    if (obj.step_index === 2922) {
-      console.log('Found step 2922!');
+    if (obj.step_index === 2629 || obj.step_index === 2633) {
+      console.log(`--- STEP ${obj.step_index} ---`);
       console.log(JSON.stringify(obj.tool_calls, null, 2));
     }
   }
