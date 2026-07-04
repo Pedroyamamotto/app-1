@@ -9,13 +9,15 @@ import ServiceListCard from '../components/shared/ServiceListCard';
 import SummaryCard from '../components/shared/SummaryCard';
 import { apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
+import { formatTimeDuration } from '../components/shared/admin/adminApi';
 import { useUser } from '../context/UserContext';
+import { cleanText } from '../utils/platformUtils';
 
 const HomeScreen = () => {
   const { user, logout } = useUser();
   const navigation = useNavigation<any>();
   const [isLoading, setIsLoading] = useState(true);
-  const [summary, setSummary] = useState({ concluido: 0, naoConcluida: 0, emEspera: 0 });
+  const [summary, setSummary] = useState({ concluido: 0, naoConcluida: 0, emEspera: 0, tempoMedioMs: 0 });
   const [upcomingServices, setUpcomingServices] = useState([]);
   const [clientsById, setClientsById] = useState<Record<string, any>>({});
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
@@ -206,7 +208,8 @@ const HomeScreen = () => {
           concluido: concluidos,
           // Não Concluída = Total - Concluídos - Ativos (Pode incluir cancelados e não realizados)
           naoConcluida: Math.max(0, total - concluidos - ativos),
-          emEspera: ativos
+          emEspera: ativos,
+          tempoMedioMs: Number(myStats.tempo_medio_ms || 0)
         };
       } else {
         // Fallback para cálculo local se não encontrar no relatório
@@ -214,7 +217,7 @@ const HomeScreen = () => {
         const naoConcluida = tecnicoServices.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
         // Considera "Em Espera" tudo que não está concluído ou cancelado/não realizado
         const emEspera = tecnicoServices.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
-        nextSummary = { concluido, naoConcluida, emEspera };
+        nextSummary = { concluido, naoConcluida, emEspera, tempoMedioMs: 0 };
       }
 
       if (hasLoadedOnce && previousServiceIdsRef.current.size > 0) {
@@ -296,13 +299,14 @@ const HomeScreen = () => {
           )}
         />
 
-        <ScrollView style={styles.content}>
+        <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 100 }}>
         <SummaryCard
           title="Visão Geral"
           items={[
             { label: 'Concluído', value: summary.concluido, color: '#1890ff' },
             { label: 'Não Concluída', value: summary.naoConcluida, color: '#ff4d4f' },
             { label: 'Em Espera', value: summary.emEspera, color: '#7A1A1A' },
+            { label: 'T. Médio', value: formatTimeDuration(summary.tempoMedioMs), color: '#475569' },
           ]}
         />
 
@@ -320,11 +324,11 @@ const HomeScreen = () => {
           upcomingServices.slice(0, 5).map((service, index) => {
             const serviceId = service?._id || service?.id || index;
             const numeroPedido = service?.numero_pedido || service?.pedido_id || serviceId;
-            const descricao = formatLockDisplayName(service?.descricao_servico || service?.descricao || service?.description);
+            const descricao = cleanText(formatLockDisplayName(service?.descricao_servico || service?.descricao || service?.description));
             const clientId = service?.cliente_id;
             const clientData = clientsById?.[clientId];
-            const clientName = clientData?.cliente || clientData?.nome || clientData?.name || `Cliente ${clientId || '-'}`;
-            const endereco = buildClientAddress(clientData);
+            const clientName = cleanText(clientData?.cliente || clientData?.nome || clientData?.name || `Cliente ${clientId || '-'}`);
+            const endereco = cleanText(buildClientAddress(clientData));
             const hora = service?.hora_agendada || service?.horaInicio || service?.time || '--:--';
             const data = service?.data_agendada || service?.dataAgendada || service?.date;
             const status = service?.status || 'agendado';

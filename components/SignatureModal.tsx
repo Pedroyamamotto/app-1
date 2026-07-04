@@ -1,10 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import React, { useRef } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Signature from 'react-native-signature-canvas';
+import WebSignature from './WebSignature';
 
 const SignatureModal = ({ visible, onClose, onBack, onComplete }) => {
   const sigRef = useRef();
+  const isWeb = Platform.OS === 'web';
 
   const handleClear = () => {
     sigRef.current.clearSignature();
@@ -33,23 +35,27 @@ const SignatureModal = ({ visible, onClose, onBack, onComplete }) => {
 
           <Text style={styles.signatureLabel}>Assinatura do Cliente *</Text>
           <View style={styles.signatureContainer}>
-            <Signature
-              ref={sigRef}
-              onOK={handleConfirm}
-              descriptionText=""
-              clearText="Limpar Assinatura"
-              confirmText="Confirmar"
-              webStyle={`
-                .m-signature-pad {
-                  box-shadow: none; 
-                  border: 1px solid #dee2e6; 
-                  border-radius: 8px;
-                }
-                .m-signature-pad--footer {
-                  display: none;
-                }
-              `}
-            />
+            {isWeb ? (
+              <WebSignature ref={sigRef} onOK={handleConfirm} />
+            ) : (
+              <Signature
+                ref={sigRef}
+                onOK={handleConfirm}
+                descriptionText=""
+                clearText="Limpar Assinatura"
+                confirmText="Confirmar"
+                webStyle={`
+                  .m-signature-pad {
+                    box-shadow: none; 
+                    border: 1px solid #dee2e6; 
+                    border-radius: 8px;
+                  }
+                  .m-signature-pad--footer {
+                    display: none;
+                  }
+                `}
+              />
+            )}
           </View>
 
           <TouchableOpacity style={styles.clearButton} onPress={handleClear}>

@@ -1,0 +1,108 @@
+Created At: 2026-07-02T12:15:20Z
+Completed At: 2026-07-02T12:15:20Z
+File Path: `file:///c:/Users/pedra/OneDrive/Computador%202025/Documents/GitHub/app/screens/PedidoScreen.tsx`
+Total Lines: 881
+Total Bytes: 32055
+Showing lines 1 to 100
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: import { Feather, FontAwesome } from '@expo/vector-icons';
+2: import { useNavigation, useRoute } from '@react-navigation/native';
+3: import React, { useEffect, useMemo, useState } from 'react';
+4: import { ActivityIndicator, Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
+5: import { Image } from 'expo-image';
+6: import { SafeAreaView } from 'react-native-safe-area-context';
+7: import ChecklistModal from '../components/ChecklistModal';
+8: import NotCompletedModal from '../components/NotCompletedModal';
+9: import PhotoUploadModal from '../components/PhotoUploadModal';
+10: import SignatureModal from '../components/SignatureModal';
+11: import StandardImage from '../components/StandardImage';
+12: import ImageZoomModal from '../components/ImageZoomModal';
+13: import { getAdminApiKey } from '../components/shared/admin/adminApi';
+14: import { API_BASE_URL, apiFetch } from '../constants/api';
+15: import { formatLockDisplayName } from '../constants/serviceDisplay';
+16: import { appendBase64ToForm, appendFileDataToForm, isWeb } from '../utils/platformUtils';
+17: 
+18: type ServiceData = {
+19:   _id?: string;
+20:   id?: string | number;
+21:   numero_pedido?: string;
+22:   cliente_id?: string;
+23:   descricao_servico?: string;
+24:   descricao?: string;
+25:   description?: string;
+26:   status?: string;
+27:   data_agendada?: string;
+28:   hora_agendada?: string;
+29:   observacoes?: string;
+30:   valor?: number | string;
+31:   forma_de_pagamento?: string;
+32:   descricao_pagamento?: string;
+33:   chaveDePagamento?: string;
+34:   fotos_contexto?: unknown;
+35:   fotosContexto?: unknown;
+36:   foto_contexto?: unknown;
+37:   fotoContexto?: unknown;
+38:   contexto_fotos?: unknown;
+39:   contextPhotos?: unknown;
+40:   foto_instalacao?: unknown;
+41:   fotoInstalacao?: unknown;
+42:   foto_url?: unknown;
+43:   fotoUrl?: unknown;
+44:   foto_path?: unknown;
+45:   fotoPath?: unknown;
+46:   imagem?: unknown;
+47:   image?: unknown;
+48:   anexo_foto?: unknown;
+49:   anexoFoto?: unknown;
+50:   foto?: unknown;
+51: };
+52: 
+53: type UploadedPhoto = {
+54:   uri: string;
+55:   mimeType?: string;
+56:   fileName?: string;
+57: };
+58: 
+59: type ChecklistCompletePayload = {
+60:   items: string[];
+61:   obs?: string;
+62:   receiptPhoto?: UploadedPhoto | null;
+63: };
+64: 
+65: export default function PedidoScreen() {
+66:   const navigation = useNavigation();
+67:   const route = useRoute();
+68:   const { id } = (route.params || {}) as { id?: string };
+69: 
+70:   const [isLoading, setIsLoading] = useState(true);
+71:   const [isSending, setIsSending] = useState(false);
+72:   const [service, setService] = useState<ServiceData | null>(null);
+73:   const [client, setClient] = useState<any>(null);
+74:   const [isChecklistVisible, setChecklistVisible] = useState(false);
+75:   const [isPhotoUploadVisible, setPhotoUploadVisible] = useState(false);
+76:   const [isSignatureVisible, setSignatureVisible] = useState(false);
+77:   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
+78:   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+79:   const [completionData, setCompletionData] = useState<{ 
+80:     checklist: string[]; 
+81:     checklistObs: string; 
+82:     photos: UploadedPhoto[];
+83:     receiptPhoto: UploadedPhoto | null;
+84:     reasonNoReceipt?: string | null;
+85:   }>({ checklist: [], checklistObs: '', photos: [], receiptPhoto: null, reasonNoReceipt: null });
+86: 
+87:   const resetCompletionDraft = () => {
+88:     setCompletionData({ checklist: [], checklistObs: '', photos: [], receiptPhoto: null, reasonNoReceipt: null });
+89:   };
+90: 
+91:   const closeCompletionFlow = () => {
+92:     setChecklistVisible(false);
+93:     setPhotoUploadVisible(false);
+94:     setSignatureVisible(false);
+95:     resetCompletionDraft();
+96:   };
+97: 
+98:   const serviceId = id || '';
+99:   const normalizeStatus = (status: unknown) => String(status || '').toLowerCase();
+100:   const isFinalized = ['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(service?.status));
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

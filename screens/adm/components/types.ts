@@ -15,13 +15,39 @@ export type FilterState = {
 };
 
 export type NewServiceForm = {
+  // Config
+  clientMode: 'new' | 'existing';
+  clienteId: string;
+  
+  // Client new fields
   nomeCompleto: string;
+  cpf: string;
+  ie: string;
+  tipo: string;
   telefone: string;
-  cep: string;
+  celular: string;
   email: string;
+  bling_pedido_id: string;
+  
+  // Endereco
+  rua: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+  
+  // Old string that might still be used or ignored
   endereco: string;
+
+  // Service
   observacoes: string;
   descricao: string;
+  valor: string;
+  forma_de_pagamento: string;
+  descricao_pagamento: string;
+  chaveDePagamento: string;
   tecnicoResponsavel: string;
   dataHoraVisita: string;
 };

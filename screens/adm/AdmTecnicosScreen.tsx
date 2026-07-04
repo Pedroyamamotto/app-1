@@ -1,9 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
-import { Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, type AdminTechnicianData } from '../../components/shared/admin/adminApi';
+import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, formatTimeDuration, updateAdminUser, type AdminTechnicianData } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
@@ -82,6 +82,30 @@ export default function AdmTecnicosScreen() {
     }, [loadTecnicos])
   );
 
+  const handlePromoteToGerente = async (tecnico: Tecnico) => {
+    Alert.alert(
+      'Tornar Gerente',
+      `Deseja promover o técnico ${tecnico.nome} para gerente?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Promover',
+          onPress: async () => {
+            try {
+              await updateAdminUser(tecnico.id, { typeUser: 'gerente' });
+              Alert.alert('Sucesso', `${tecnico.nome} agora é um gerente!`);
+              setSelectedTecnico(null);
+              loadTecnicos();
+            } catch (error) {
+              console.warn('Erro ao promover técnico:', error);
+              Alert.alert('Erro', 'Não foi possível promover o técnico.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const totalAguardando = overview.aguardando;
   const totalAtribuidos = overview.atribuidos;
   const totalConcluidos = overview.concluidos;
@@ -133,6 +157,10 @@ export default function AdmTecnicosScreen() {
               <View style={[styles.tecStatItem, styles.tecStatItemBlue]}>
                 <Text style={[styles.tecStatNumber, { color: '#1d4ed8' }]}>{tec.concluidos}</Text>
                 <Text style={styles.tecStatLabel}>Concluidos</Text>
+              </View>
+              <View style={[styles.tecStatItem, { backgroundColor: '#f8fafc' }]}>
+                <Text style={[styles.tecStatNumber, { color: '#475569' }]}>{formatTimeDuration(tec.tempoMedioMs)}</Text>
+                <Text style={styles.tecStatLabel}>T. Médio</Text>
               </View>
             </View>
           </TouchableOpacity>
@@ -219,6 +247,10 @@ export default function AdmTecnicosScreen() {
                   <Text style={[styles.metricValue, styles.metricValueBlue]}>{selectedTecnico.concluidos}</Text>
                   <Text style={styles.metricLabel}>Concluidos</Text>
                 </View>
+                <View style={[styles.metricCard, { backgroundColor: '#f8fafc' }]}>
+                  <Text style={[styles.metricValue, { color: '#475569' }]}>{formatTimeDuration(selectedTecnico.tempoMedioMs)}</Text>
+                  <Text style={styles.metricLabel}>T. Médio</Text>
+                </View>
               </View>
 
               <View style={styles.detailCard}>
@@ -276,13 +308,23 @@ export default function AdmTecnicosScreen() {
                 ))}
               </View>
 
-              <TouchableOpacity
-                style={styles.closeDetailButton}
-                activeOpacity={0.9}
-                onPress={() => setSelectedTecnico(null)}
-              >
-                <Text style={styles.closeDetailButtonText}>Fechar</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+                <TouchableOpacity
+                  style={[styles.closeDetailButton, { flex: 1, backgroundColor: '#7A1A1A', borderColor: '#7A1A1A' }]}
+                  activeOpacity={0.9}
+                  onPress={() => handlePromoteToGerente(selectedTecnico)}
+                >
+                  <Text style={[styles.closeDetailButtonText, { color: '#fff' }]}>Tornar Gerente</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.closeDetailButton, { flex: 1 }]}
+                  activeOpacity={0.9}
+                  onPress={() => setSelectedTecnico(null)}
+                >
+                  <Text style={styles.closeDetailButtonText}>Fechar</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
             </View>
           </SafeAreaView>

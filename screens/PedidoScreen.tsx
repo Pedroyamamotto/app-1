@@ -10,10 +10,13 @@ import PhotoUploadModal from '../components/PhotoUploadModal';
 import SignatureModal from '../components/SignatureModal';
 import StandardImage from '../components/StandardImage';
 import ImageZoomModal from '../components/ImageZoomModal';
+import Stopwatch from '../components/Stopwatch';
+import PauseModal from '../components/PauseModal';
 import { getAdminApiKey } from '../components/shared/admin/adminApi';
 import { API_BASE_URL, apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
-import { appendBase64ToForm, appendFileDataToForm, isWeb } from '../utils/platformUtils';
+import { useUser } from '../context/UserContext';
+import { appendBase64ToForm, appendFileDataToForm, isWeb, cleanText } from '../utils/platformUtils';
 
 type ServiceData = {
   _id?: string;
@@ -48,6 +51,14 @@ type ServiceData = {
   anexo_foto?: unknown;
   anexoFoto?: unknown;
   foto?: unknown;
+  updated_at?: string;
+  assinaturaUri?: string;
+  motivo_sem_comprovante?: string;
+  motivoSemComprovante?: string;
+  tecnico?: string;
+  tempo_trabalhado_ms?: number;
+  quantidade_pausas?: number;
+  iniciado_em?: string | null;
 };
 
 type UploadedPhoto = {
@@ -67,24 +78,31 @@ export default function PedidoScreen() {
   const route = useRoute();
   const { id } = (route.params || {}) as { id?: string };
 
+  const { user } = useUser();
+  const tecnicoId = user?.id || user?._id || '';
+  const tecnicoNome = user?.nome || user?.name || 'Técnico';
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [service, setService] = useState<ServiceData | null>(null);
   const [client, setClient] = useState<any>(null);
+  const [finalizacao, setFinalizacao] = useState<any>(null);
   const [isChecklistVisible, setChecklistVisible] = useState(false);
   const [isPhotoUploadVisible, setPhotoUploadVisible] = useState(false);
   const [isSignatureVisible, setSignatureVisible] = useState(false);
   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
+  const [isPauseModalVisible, setPauseModalVisible] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [completionData, setCompletionData] = useState<{ 
     checklist: string[]; 
     checklistObs: string; 
     photo: UploadedPhoto | null;
     receiptPhoto: UploadedPhoto | null;
-  }>({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null });
+    reasonNoReceipt?: string | null;
+  }>({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null, reasonNoReceipt: null });
 
   const resetCompletionDraft = () => {
-    setCompletionData({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null });
+    setCompletionData({ checklist: [], checklistObs: '', photo: null, receiptPhoto: null, reasonNoReceipt: null });
   };
 
   const closeCompletionFlow = () => {
@@ -269,11 +287,11 @@ export default function PedidoScreen() {
 
   const address = useMemo(() => {
     if (!client) return 'Endereço não informado';
-    const rua = client?.rua || client?.logradouro || client?.endereco || '';
-    const numero = client?.numero || '';
-    const bairro = client?.bairro || '';
-    const cidade = client?.cidade || '';
-    const estado = client?.estado || client?.uf || '';
+    const rua = cleanText(client?.rua || client?.logradouro || client?.endereco || '');
+    const numero = cleanText(client?.numero || '');
+    const bairro = cleanText(client?.bairro || '');
+    const cidade = cleanText(client?.cidade || '');
+    const estado = cleanText(client?.estado || client?.uf || '');
     return [
       [rua, numero].filter(Boolean).join(', '),
       [bairro, cidade, estado].filter(Boolean).join(' - '),
@@ -302,6 +320,15 @@ export default function PedidoScreen() {
           const clientData = await clientRes.json().catch(() => ({}));
           setClient(clientData?.cliente || clientData?.data || clientData);
         }
+
+        const isFinalizedStatus = ['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(String(payload?.status || '').toLowerCase());
+        if (isFinalizedStatus) {
+          const finRes = await apiFetch(`/api/services/${serviceId}/finalizacao`);
+          if (finRes.ok) {
+            const finData = await finRes.json().catch(() => null);
+            setFinalizacao(finData?.finalizacao || finData?.data || finData);
+          }
+        }
       } catch (error) {
         console.error('Erro ao carregar pedido:', error);
       } finally {
@@ -312,12 +339,32 @@ export default function PedidoScreen() {
     loadPedido();
   }, [serviceId]);
 
+  const carregarServico = async (id: string) => {
+    try {
+      const res = await apiFetch(`/api/services/${id}`);
+      const data = await res.json().catch(() => ({}));
+      const payload = data?.service || data?.data || data;
+      setService(payload);
+
+      const isFinalizedStatus = ['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(String(payload?.status || '').toLowerCase());
+      if (isFinalizedStatus) {
+        const finRes = await apiFetch(`/api/services/${id}/finalizacao`);
+        if (finRes.ok) {
+          const finData = await finRes.json().catch(() => null);
+          setFinalizacao(finData?.finalizacao || finData?.data || finData);
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar', e);
+    }
+  };
+
   const formattedDate = formatScheduledDate(service?.data_agendada);
 
-  const clientName = client?.cliente || client?.nome || 'Cliente não informado';
+  const clientName = cleanText(client?.cliente || client?.nome || 'Cliente não informado');
   const phone = client?.telefone || client?.phone || '-';
 
-  const handleChecklistComplete = (payload: ChecklistCompletePayload | string[]) => {
+  const handleChecklistComplete = (payload: any) => {
     if (isFinalized) {
       Alert.alert('Serviço já finalizado', 'Este serviço já foi concluído ou marcado como não realizado.');
       return;
@@ -326,8 +373,9 @@ export default function PedidoScreen() {
     const items = Array.isArray(payload) ? payload : payload?.items || [];
     const checklistObs = Array.isArray(payload) ? '' : String(payload?.obs || '').trim();
     const receiptPhoto = Array.isArray(payload) ? null : payload?.receiptPhoto || null;
+    const reasonNoReceipt = Array.isArray(payload) ? null : payload?.reasonNoReceipt || null;
 
-    setCompletionData((prev) => ({ ...prev, checklist: items, checklistObs, receiptPhoto }));
+    setCompletionData((prev) => ({ ...prev, checklist: items, checklistObs, receiptPhoto, reasonNoReceipt }));
     setChecklistVisible(false);
     setPhotoUploadVisible(true);
   };
@@ -378,6 +426,9 @@ export default function PedidoScreen() {
     form.append('checklist', JSON.stringify(completionData.checklist));
     if (completionData.checklistObs) {
       form.append('observacoes_checklist', completionData.checklistObs);
+    }
+    if (completionData.reasonNoReceipt) {
+      form.append('motivo_sem_comprovante', completionData.reasonNoReceipt);
     }
     form.append('assinatura', signature); // base64 direto
 
@@ -511,6 +562,404 @@ export default function PedidoScreen() {
       setIsSending(false);
     }
   };
+
+  const handleIniciarServico = async () => {
+    if (isSending) return;
+    setIsSending(true);
+    try {
+      const isRetomando = normalizeStatus(service?.status) === 'pausado';
+
+      const response = await apiFetch(`/api/services/${serviceId}/iniciar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tecnico_id: tecnicoId,
+          tecnico: tecnicoNome,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.message || 'Falha ao iniciar o serviço');
+      }
+
+      await carregarServico(serviceId as string);
+      Alert.alert('Sucesso', isRetomando ? 'Serviço retomado.' : 'Serviço iniciado.');
+    } catch (error: any) {
+      console.warn('Erro ao iniciar serviço:', error);
+      Alert.alert('Erro', error?.message || 'Não foi possível iniciar o serviço.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handlePausarServico = async () => {
+    if (isSending) return;
+    setIsSending(true);
+    setPauseModalVisible(false);
+    try {
+      const response = await apiFetch(`/api/services/${serviceId}/pausar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tecnico_id: tecnicoId,
+          tecnico: tecnicoNome,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.message || 'Falha ao pausar o serviço');
+      }
+
+      await carregarServico(serviceId as string);
+      Alert.alert('Sucesso', 'Serviço pausado.');
+    } catch (error: any) {
+      console.warn('Erro ao pausar serviço:', error);
+      Alert.alert('Erro', error?.message || 'Não foi possível pausar o serviço.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const renderFinalizedServiceView = () => {
+    const isConcluido = normalizeStatus(service?.status) === 'concluido' || normalizeStatus(service?.status) === 'concluida';
+    const statusText = isConcluido ? 'Serviço Concluído' : 'Serviço Não Realizado';
+    const statusIcon = isConcluido ? 'check-circle' : 'x-circle';
+    const statusIconColor = isConcluido ? '#16a34a' : '#ef4444';
+    
+    const valorFormatado = service?.valor
+      ? Number(service.valor).toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        })
+      : '-';
+
+    const finalizacaoDateStr = (() => {
+      const rawDate = finalizacao?.finalizado_em || service?.updated_at || new Date();
+      const date = new Date(rawDate);
+      if (Number.isNaN(date.getTime())) return '-';
+      const formatted = date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const timeFormatted = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      return `${formatted} às ${timeFormatted}`;
+    })();
+
+    const hasChecklist = (finalizacao?.checklist?.length > 0) || (finalizacao?.itens_checklist?.length > 0);
+    const hasPhotos = (finalizacao?.fotos?.length > 0) || (contextPhotoUrls?.length > 0);
+    const hasSignature = !!(finalizacao?.assinatura || service?.assinaturaUri);
+    
+    const hasPhotoInstalacao = !!completionPhotoUrl;
+    const motivoSemComprovante = service?.motivo_sem_comprovante || finalizacao?.motivoSemComprovante || (service as any)?.motivoSemComprovante;
+
+    const checklistStatus = hasChecklist ? 'Concluído' : 'Não enviado';
+    const photosStatus = hasPhotos ? 'Enviada' : 'Não enviada';
+    const signatureStatus = hasSignature ? 'Enviada' : 'Não enviada';
+    
+    let photoInstalacaoStatus = 'Não enviada';
+    if (hasPhotoInstalacao) {
+      photoInstalacaoStatus = 'Enviada';
+    } else if (motivoSemComprovante) {
+      photoInstalacaoStatus = 'Sem Comprovante';
+    }
+
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <View style={styles.headerInfoRow}>
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <Feather name="arrow-left" size={24} color="#fff" />
+              </TouchableOpacity>
+              <View style={styles.headerIconCircle}>
+                <Feather name={statusIcon} size={22} color="#fff" />
+              </View>
+              <View style={styles.titleContainer}>
+                <Text style={styles.headerTitle}>{statusText}</Text>
+                <View style={styles.orderBadge}>
+                  <Text style={styles.orderBadgeText}>BLING-{service?.numero_pedido || '-'}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 150 }]} showsVerticalScrollIndicator={false}>
+            <View style={styles.infoBlock}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={styles.circleIconBg}>
+                    <Feather name="user" size={18} color="#64748b" />
+                  </View>
+                  <Text style={styles.cardSectionTitle}>Informações do Cliente</Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.callCircleBtn}
+                  onPress={() => Alert.alert('Ligar para Cliente', `Deseja efetuar ligação para: ${phone}`)}
+                >
+                  <Feather name="phone" size={16} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.infoValue}>{clientName}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                <Feather name="phone" size={14} color="#64748b" />
+                <Text style={{ fontSize: 14, color: '#475569' }}>{phone}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 }}>
+                <Feather name="map-pin" size={14} color="#64748b" style={{ marginTop: 2 }} />
+                <Text style={{ fontSize: 13, color: '#64748b', flex: 1 }}>{address}</Text>
+              </View>
+            </View>
+
+            <View style={styles.infoBlock}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={styles.circleIconBg}>
+                  <Feather name="users" size={18} color="#64748b" />
+                </View>
+                <Text style={styles.infoValue}>Técnico: <Text style={{ fontWeight: 'normal', color: '#475569' }}>{service?.tecnico || 'Técnico Selecionado'}</Text></Text>
+              </View>
+            </View>
+
+            <View style={styles.infoBlock}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <View style={styles.circleIconBg}>
+                  <Feather name="lock" size={18} color="#64748b" />
+                </View>
+                <Text style={styles.cardSectionTitle}>Serviço Executado</Text>
+              </View>
+              <Text style={[styles.infoValue, { fontSize: 16, lineHeight: 22 }]}>{lockName}</Text>
+            </View>
+
+            <View style={styles.infoBlock}>
+              <Text style={[styles.cardSectionTitle, { marginBottom: 12 }]}>Detalhes do Serviço</Text>
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailRowLabel}>Forma de Pagamento</Text>
+                <Text style={styles.detailRowValue}>{service?.forma_de_pagamento || '-'}</Text>
+              </View>
+              <View style={styles.divider} />
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailRowLabel}>Descrição</Text>
+                <Text style={styles.detailRowValue}>
+                  {service?.descricao_pagamento?.replace(/pix/gi, '').trim() || '-'}
+                </Text>
+              </View>
+              <View style={styles.divider} />
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailRowLabel}>Chave</Text>
+                <Text style={styles.detailRowValue}>{service?.chaveDePagamento || '-'}</Text>
+              </View>
+              <View style={styles.divider} />
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailRowLabel}>Valor</Text>
+                <Text style={[styles.detailRowValue, { fontWeight: '700' }]}>{valorFormatado}</Text>
+              </View>
+              <View style={styles.divider} />
+              
+              <View style={styles.detailRow}>
+                <Text style={styles.detailRowLabel}>Observações</Text>
+                <Text style={styles.detailRowValue}>{service?.observacoes || '-'}</Text>
+              </View>
+            </View>
+
+            <View style={[styles.successBanner, { backgroundColor: isConcluido ? '#f6ffed' : '#fff1f0', borderColor: isConcluido ? '#b7eb8f' : '#ffa39e' }]}>
+              <Feather name={statusIcon} size={16} color={statusIconColor} />
+              <Text style={[styles.successBannerText, { color: isConcluido ? '#389e0d' : '#cf1322' }]}>
+                {isConcluido ? 'Concluído em: ' : 'Não realizado em: '}{finalizacaoDateStr}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+              <View style={[styles.statBox, { flex: 1 }]}>
+                <View style={[styles.circleIconBg, { backgroundColor: '#e6f7ff', width: 36, height: 36, borderRadius: 18 }]}>
+                  <Feather name="clock" size={16} color="#1890ff" />
+                </View>
+                <View style={{ marginTop: 8 }}>
+                  <Text style={styles.statLabel}>Duração do Atendimento</Text>
+                  <Text style={styles.statValue}>{Math.round((service?.tempo_trabalhado_ms || 0) / 60000)} min</Text>
+                </View>
+              </View>
+              
+              <View style={[styles.statBox, { flex: 1 }]}>
+                <View style={[styles.circleIconBg, { backgroundColor: '#f9f0ff', width: 36, height: 36, borderRadius: 18 }]}>
+                  <Feather name="pause-circle" size={16} color="#722ed1" />
+                </View>
+                <View style={{ marginTop: 8 }}>
+                  <Text style={styles.statLabel}>Pausas Realizadas</Text>
+                  <Text style={styles.statValue}>{service?.quantidade_pausas || 0}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={{ gap: 12 }}>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity 
+                  style={[styles.gridCard, { flex: 1 }]}
+                  activeOpacity={hasChecklist ? 0.7 : 1}
+                  onPress={() => {
+                    if (hasChecklist) {
+                      Alert.alert(
+                        'Itens do Checklist',
+                        finalizacao?.checklist?.map((c: any) => `${c.done ? '✓' : '✗'} ${c.label}`).join('\n') || 
+                        'Checklist concluído'
+                      );
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#e6ffed' }]}>
+                      <Feather name="clipboard" size={16} color="#389e0d" />
+                    </View>
+                    <View style={[styles.badgeStyle, { backgroundColor: hasChecklist ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: hasChecklist ? '#15803d' : '#ef4444' }]}>{checklistStatus}</Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Checklist de Instalação</Text>
+                    <Text style={styles.gridCardSub}>
+                      {hasChecklist ? 'Checklist de instalação salvo.' : 'Este serviço ainda não possui checklist salvo no backend.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.gridCard, { flex: 1 }]}
+                  activeOpacity={hasPhotos ? 0.7 : 1}
+                  onPress={() => {
+                    if (hasPhotos) {
+                      const firstUrl = finalizacao?.fotos?.[0] || contextPhotoUrls?.[0];
+                      if (firstUrl) setZoomedImage(firstUrl);
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#eff6ff' }]}>
+                      <Feather name="camera" size={16} color="#2563eb" />
+                    </View>
+                    <View style={[styles.badgeStyle, { backgroundColor: hasPhotos ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: hasPhotos ? '#15803d' : '#ef4444' }]}>{photosStatus}</Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Foto do Serviço</Text>
+                    <Text style={styles.gridCardSub}>
+                      {hasPhotos ? `${finalizacao?.fotos?.length || contextPhotoUrls?.length} foto(s) enviada(s).` : 'Nenhuma foto de serviço enviada.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity 
+                  style={[styles.gridCard, { flex: 1 }]}
+                  activeOpacity={(hasPhotoInstalacao || motivoSemComprovante) ? 0.7 : 1}
+                  onPress={() => {
+                    if (hasPhotoInstalacao) {
+                      setZoomedImage(completionPhotoUrl);
+                    } else if (motivoSemComprovante) {
+                      Alert.alert('Sem Comprovante', `Motivo informado pelo técnico:\n\n"${motivoSemComprovante}"`);
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#fdf4ff' }]}>
+                      <Feather name="image" size={16} color="#c084fc" />
+                    </View>
+                    <View style={[
+                      styles.badgeStyle, 
+                      { 
+                        backgroundColor: photoInstalacaoStatus === 'Enviada' 
+                          ? '#dcfce7' 
+                          : photoInstalacaoStatus === 'Sem Comprovante' 
+                            ? '#fef3c7' 
+                            : '#fee2e2' 
+                      }
+                    ]}>
+                      <Text style={[
+                        styles.badgeText, 
+                        { 
+                          color: photoInstalacaoStatus === 'Enviada' 
+                            ? '#15803d' 
+                            : photoInstalacaoStatus === 'Sem Comprovante' 
+                              ? '#d97706' 
+                              : '#ef4444' 
+                        }
+                      ]}>{photoInstalacaoStatus}</Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Foto de Instalação</Text>
+                    <Text style={styles.gridCardSub} numberOfLines={2}>
+                      {photoInstalacaoStatus === 'Enviada' 
+                        ? 'Foto de instalação enviada pelo técnico.' 
+                        : photoInstalacaoStatus === 'Sem Comprovante' 
+                          ? `Motivo: "${motivoSemComprovante}"`
+                          : 'Nenhuma foto de instalação enviada.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.gridCard, { flex: 1 }]}
+                  activeOpacity={hasSignature ? 0.7 : 1}
+                  onPress={() => {
+                    const sigUri = finalizacao?.assinatura || service?.assinaturaUri;
+                    if (sigUri) setZoomedImage(sigUri);
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <View style={[styles.circleIconBg, { backgroundColor: '#fff7ed' }]}>
+                      <Feather name="edit-3" size={16} color="#ea580c" />
+                    </View>
+                    <View style={[styles.badgeStyle, { backgroundColor: hasSignature ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: hasSignature ? '#15803d' : '#ef4444' }]}>{signatureStatus}</Text>
+                    </View>
+                  </View>
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={styles.gridCardTitle}>Assinatura do Cliente</Text>
+                    <Text style={styles.gridCardSub}>
+                      {hasSignature ? 'Assinatura do cliente salva.' : 'Nenhuma assinatura enviada.'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+
+          <View style={styles.finalizedFooter}>
+            <TouchableOpacity 
+              style={styles.gerarRelatorioBtn} 
+              activeOpacity={0.8}
+              onPress={() => Alert.alert('Relatório', 'Função de gerar relatório iniciada. Carregando documento...')}
+            >
+              <Feather name="file-text" size={18} color="#fff" />
+              <Text style={styles.gerarRelatorioBtnText}>Gerar Relatório</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.fecharBtn} 
+              activeOpacity={0.8}
+              onPress={() => navigation.goBack()}
+            >
+              <Text style={styles.fecharBtnText}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ImageZoomModal
+          visible={!!zoomedImage}
+          imageUri={zoomedImage}
+          onClose={() => setZoomedImage(null)}
+        />
+      </SafeAreaView>
+    );
+  };
+
+  if (isFinalized) {
+    return renderFinalizedServiceView();
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -690,27 +1139,144 @@ export default function PedidoScreen() {
             ) : null}
           </ScrollView>
 
-          <View style={styles.footerActions}>
-            <TouchableOpacity
-              style={[styles.primaryButton, (isSending || isFinalized) && { opacity: 0.6 }]}
-              disabled={isSending || isFinalized}
-              onPress={() => {
-                resetCompletionDraft();
-                setChecklistVisible(true);
-              }}
-            >
-              {isSending ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="camera" size={20} color="#fff" />}
-              <Text style={styles.buttonText}>{isSending ? 'Enviando...' : isFinalized ? 'Serviço Finalizado' : 'Concluir Serviço'}</Text>
-            </TouchableOpacity>
+          <View style={[styles.footerActions, { paddingBottom: 15 }]}>
+            {!isFinalized && (
+              <>
+                {(normalizeStatus(service?.status) === 'iniciado' || normalizeStatus(service?.status) === 'pausado') ? (
+                  <View style={[styles.actionCard, { backgroundColor: '#fffcfc' }]}>
+                    <View style={styles.notStartedHeader}>
+                      <View style={[styles.notStartedIcon, { backgroundColor: normalizeStatus(service?.status) === 'pausado' ? '#fff3cd' : '#f5e6e6' }]}>
+                        <Feather name={normalizeStatus(service?.status) === 'pausado' ? 'pause-circle' : 'pause'} size={20} color={normalizeStatus(service?.status) === 'pausado' ? '#856404' : '#7A1A1A'} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.notStartedTitle, normalizeStatus(service?.status) === 'pausado' && { color: '#856404' }]}>
+                          {normalizeStatus(service?.status) === 'pausado' ? 'Serviço Pausado' : 'Serviço em andamento'}
+                        </Text>
+                        <Text style={styles.notStartedSub}>
+                          {normalizeStatus(service?.status) === 'pausado' ? 'Tempo de trabalho foi pausado.' : 'Tempo decorrido desde o inicio do serviço.'}
+                        </Text>
+                      </View>
+                      <View style={{ backgroundColor: normalizeStatus(service?.status) === 'pausado' ? '#fef3c7' : '#fee2e2', paddingHorizontal: 6, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: normalizeStatus(service?.status) === 'pausado' ? '#d97706' : '#ef4444', marginRight: 4 }} />
+                        <Text style={{ fontSize: 10, color: normalizeStatus(service?.status) === 'pausado' ? '#92400e' : '#7f1d1d', fontWeight: 'bold' }}>
+                          {normalizeStatus(service?.status) === 'pausado' ? 'Pausado' : 'Em andamento'}
+                        </Text>
+                      </View>
+                    </View>
 
-            <TouchableOpacity
-              style={[styles.secondaryButton, (isSending || isFinalized) && { opacity: 0.6 }]}
-              disabled={isSending || isFinalized}
-              onPress={() => setNotCompletedModalVisible(true)}
-            >
-              <Feather name="x" size={20} color="#fff" />
-              <Text style={styles.buttonText}>Marcar como Não Realizado</Text>
-            </TouchableOpacity>
+                    <Stopwatch 
+                      iniciadoEm={normalizeStatus(service?.status) === 'pausado' ? null : (service?.iniciado_em || null)} 
+                      tempoTrabalhadoMs={service?.tempo_trabalhado_ms || 0} 
+                    />
+
+                    {normalizeStatus(service?.status) === 'pausado' ? (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.primaryButton, { backgroundColor: '#eab308' }, isSending && { opacity: 0.6 }]}
+                          disabled={isSending}
+                          onPress={handleIniciarServico}
+                        >
+                          {isSending ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="play" size={20} color="#fff" />}
+                          <Text style={styles.buttonText}>{isSending ? 'Processando...' : 'Retomar Serviço'}</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          style={[styles.outlineButton, { marginBottom: 12, borderColor: '#e11d48' }, isSending && { opacity: 0.6 }]}
+                          disabled={isSending}
+                          onPress={() => setNotCompletedModalVisible(true)}
+                        >
+                          <Feather name="x-circle" size={18} color="#e11d48" />
+                          <Text style={[styles.outlineButtonText, { color: '#e11d48', fontSize: 13, marginLeft: 4 }]}>Não Realizado</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.primaryButton, { backgroundColor: '#450a0a' }, isSending && { opacity: 0.6 }]}
+                          disabled={isSending}
+                          onPress={() => {
+                            resetCompletionDraft();
+                            setChecklistVisible(true);
+                          }}
+                        >
+                          {isSending ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="check-circle" size={20} color="#fff" />}
+                          <Text style={styles.buttonText}>{isSending ? 'Processando...' : 'Concluir Serviço'}</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.outlineButton, { marginBottom: 12, borderColor: '#e11d48' }, isSending && { opacity: 0.6 }]}
+                          disabled={isSending}
+                          onPress={() => setNotCompletedModalVisible(true)}
+                        >
+                          <Feather name="x-circle" size={18} color="#e11d48" />
+                          <Text style={[styles.outlineButtonText, { color: '#e11d48', fontSize: 13, marginLeft: 4 }]}>Não Realizado</Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.rowButtons}>
+                          <TouchableOpacity
+                            style={[styles.outlineButton, isSending && { opacity: 0.6 }, { flex: 1 }]}
+                            disabled={isSending}
+                            onPress={() => setPauseModalVisible(true)}
+                          >
+                            <Feather name="pause" size={18} color="#7A1A1A" />
+                            <Text style={[styles.outlineButtonText, { fontSize: 13, marginLeft: 4 }]}>Pausar Serviço</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.outlineButton, isSending && { opacity: 0.6 }, { flex: 1 }]}
+                            disabled={isSending}
+                            onPress={() => setPauseModalVisible(true)}
+                          >
+                            <Feather name="calendar" size={18} color="#7A1A1A" />
+                            <Text style={[styles.outlineButtonText, { fontSize: 13, marginLeft: 4 }]}>Reagendar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.actionCard}>
+                    <View style={styles.notStartedHeader}>
+                      <View style={styles.notStartedIcon}>
+                        <Feather name="play-circle" size={24} color="#7A1A1A" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.notStartedTitle}>Serviço ainda não iniciado</Text>
+                        <Text style={styles.notStartedSub}>Inicie o serviço para começar a contagem do tempo.</Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.primaryButton, { backgroundColor: '#7A1A1A' }, isSending && { opacity: 0.6 }]}
+                      disabled={isSending}
+                      onPress={handleIniciarServico}
+                    >
+                      {isSending ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="play-circle" size={20} color="#fff" />}
+                      <Text style={styles.buttonText}>{isSending ? 'Processando...' : 'Iniciar o Serviço'}</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.rowButtons}>
+                      <TouchableOpacity
+                        style={[styles.outlineButton, isSending && { opacity: 0.6 }, { flex: 1 }]}
+                        disabled={isSending}
+                        onPress={() => setNotCompletedModalVisible(true)}
+                      >
+                        <Feather name="x" size={18} color="#7A1A1A" />
+                        <Text style={[styles.outlineButtonText, { fontSize: 13, marginLeft: 4 }]}>Não Realizado</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={[styles.outlineButton, isSending && { opacity: 0.6 }, { flex: 1 }]}
+                        disabled={isSending}
+                        onPress={() => setPauseModalVisible(true)}
+                      >
+                        <Feather name="calendar" size={18} color="#7A1A1A" />
+                        <Text style={[styles.outlineButtonText, { fontSize: 13, marginLeft: 4 }]}>Reagendar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </>
+            )}
           </View>
         </>
       )}
@@ -740,6 +1306,12 @@ export default function PedidoScreen() {
         onClose={closeCompletionFlow}
         onBack={handleSignatureBack}
         onComplete={handleSignatureComplete}
+      />
+
+      <PauseModal
+        visible={isPauseModalVisible}
+        onClose={() => setPauseModalVisible(false)}
+        onConfirm={handlePausarServico}
       />
 
       <NotCompletedModal
@@ -785,7 +1357,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   orderBadgeText: { color: '#e5f7ea', fontSize: 14, fontWeight: '600' },
-  content: { padding: 20, paddingBottom: 240, marginTop: 22 },
+  content: { padding: 20, paddingBottom: 650, marginTop: 22 },
   serviceCard: {
     backgroundColor: '#eef2f7',
     borderRadius: 14,
@@ -855,6 +1427,186 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700', marginLeft: 10 },
+  outlineButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#7A1A1A',
+    height: 56,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  outlineButtonText: {
+    color: '#7A1A1A',
+    fontSize: 16,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  actionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    gap: 12,
+  },
+  notStartedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 8,
+  },
+  notStartedIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notStartedTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  notStartedSub: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  rowButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10, color: '#4b5563', fontSize: 15 },
+  circleIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  callCircleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  detailRowLabel: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+  detailRowValue: {
+    fontSize: 15,
+    color: '#0f172a',
+    fontWeight: '500',
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 20,
+  },
+  successBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statBox: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 14,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+  gridCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 14,
+    minHeight: 120,
+  },
+  gridCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  gridCardSub: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  badgeStyle: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  finalizedFooter: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    bottom: 20,
+    backgroundColor: '#f0f2f5',
+    gap: 10,
+  },
+  gerarRelatorioBtn: {
+    backgroundColor: '#7A1A1A',
+    height: 52,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  gerarRelatorioBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  fecharBtn: {
+    backgroundColor: '#e2e8f0',
+    height: 52,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fecharBtnText: {
+    color: '#334155',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });

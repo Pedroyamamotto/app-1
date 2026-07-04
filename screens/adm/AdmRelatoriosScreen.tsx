@@ -4,7 +4,7 @@ import { ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
-import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, type AdminDashboardData, type AdminServiceData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, fetchAdminGerentesFromApi, formatTimeDuration, type AdminDashboardData, type AdminServiceData, type AdminTecnicoUser, type AdminGerenteUser } from '../../components/shared/admin/adminApi';
 
 const normalizeId = (value: unknown) => {
   const raw = String(value || '').trim();
@@ -23,17 +23,29 @@ export default function AdmRelatoriosScreen() {
 
   const loadRelatorios = useCallback(async () => {
     try {
-      const [nextDashboard, nextTecnicos, nextServices] = await Promise.all([
+      const [nextDashboard, nextTecnicos, nextGerentes, nextServices] = await Promise.all([
         fetchAdminDashboardFromApi(),
         fetchAdminTecnicosFromApi(),
+        fetchAdminGerentesFromApi(),
         fetchAdminServicesAllFromApi(),
       ]);
       // LOGS DE DEPURAÇÃO
       console.log('[Relatorios] Dashboard recebido:', nextDashboard);
       console.log('[Relatorios] Tecnicos recebidos:', nextTecnicos);
+      console.log('[Relatorios] Gerentes recebidos:', nextGerentes);
       console.log('[Relatorios] Services recebidos:', nextServices);
       setDashboard(nextDashboard);
-      setTecnicos(nextTecnicos);
+      
+      const combinedUsers = [
+        ...nextTecnicos,
+        ...nextGerentes.map((g) => ({
+          id: g.id,
+          nome: g.nome,
+          email: g.email,
+          telefone: g.telefone,
+        })),
+      ];
+      setTecnicos(combinedUsers);
       setServices(nextServices);
       setLoadError(null);
     } catch (error) {
@@ -108,6 +120,7 @@ export default function AdmRelatoriosScreen() {
         nome: tecnico.nome,
         concluidos: stats?.concluidos || 0,
         andamento: stats?.ativos || 0,
+        tempo_medio_ms: stats?.tempoMedioMs || 0,
       };
     });
 
@@ -122,6 +135,7 @@ export default function AdmRelatoriosScreen() {
         nome: item.nome,
         concluidos: item.concluidos,
         andamento: item.ativos,
+        tempo_medio_ms: item.tempoMedioMs || 0,
       }));
 
     const combined = [...merged, ...semCadastro];
@@ -150,6 +164,7 @@ export default function AdmRelatoriosScreen() {
         })(),
         concluidos: tecnico.concluidos,
         andamento: tecnico.pendentes,
+        tempo_medio_ms: tecnico.tempo_medio_ms || 0,
       }));
   }, [dashboard, tecnicosById, tecnicosConsolidados]);
 
@@ -183,19 +198,25 @@ export default function AdmRelatoriosScreen() {
         {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Desempenho por Tecnico</Text>
+          <Text style={styles.sectionTitle}>Desempenho por Técnico / Gerente</Text>
           {desempenho.length === 0 ? (
-            <Text style={styles.emptyText}>Nenhum tecnico encontrado a partir dos servicos da API.</Text>
+            <Text style={styles.emptyText}>Nenhum técnico ou gerente encontrado a partir dos serviços da API.</Text>
           ) : (
             desempenho.map((item, index) => (
               <View key={`${item.id || 'tecnico'}-${item.nome}-${index}`} style={styles.rowItem}>
-                <View>
+                <View style={{ flex: 1, marginRight: 12 }}>
                   <Text style={styles.rowName}>{item.nome}</Text>
                   <Text style={styles.rowMeta}>{item.andamento} em andamento</Text>
                 </View>
-                <View style={styles.rowBadge}>
-                  <Text style={styles.rowBadgeValue}>{item.concluidos}</Text>
-                  <Text style={styles.rowBadgeLabel}>Concluidos</Text>
+                <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                  <View style={{marginRight: 15, alignItems: 'center'}}>
+                    <Text style={[styles.rowBadgeValue, {color: '#475569'}]}>{formatTimeDuration(item.tempo_medio_ms)}</Text>
+                    <Text style={styles.rowBadgeLabel}>T. Médio</Text>
+                  </View>
+                  <View style={styles.rowBadge}>
+                    <Text style={styles.rowBadgeValue}>{item.concluidos}</Text>
+                    <Text style={styles.rowBadgeLabel}>Concluidos</Text>
+                  </View>
                 </View>
               </View>
             ))

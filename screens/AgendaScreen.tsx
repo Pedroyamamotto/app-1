@@ -179,7 +179,13 @@ const AgendaScreen = () => {
       ]);
 
       const services = normalizeServices(servicesPayload);
-      const tecnicoServices = services.filter((service) => isAssignedToLoggedTechnician(service));
+      
+      const typeUserStr = String(user?.typeUser || '').toLowerCase();
+      const isManagerOrAdmin = typeUserStr === 'admin' || typeUserStr === 'gerente';
+      
+      const tecnicoServices = isManagerOrAdmin 
+        ? services 
+        : services.filter((service) => isAssignedToLoggedTechnician(service));
 
       // Encontrar dados do técnico logado no relatório (ID ou Nome)
       const servicosPorTecnico = Array.isArray(reportsData?.servicosConcluidosPorTecnico) ? reportsData.servicosConcluidosPorTecnico : [];

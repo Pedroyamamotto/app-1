@@ -1,0 +1,6 @@
+<USER_REQUEST>
+corrija a função de pausar , iniciar serviço o botaõ o o que acontece hoje ele sempre mostra como pausar serviço coisa que não deveria acontecer era para se o serviço não tiver sido iniciaado por um tecnico e estiver com status atibuido ou aguardado o botão deveria aparecer iniciar serviço se o estatus for iniciciado pois algum tecnico começou o serviço e o tempo esta contatando era para parecer o btoão de pausar serviço se o serviço estiver como conluido esse botão não deve nem aparecer para o usuario
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-07-02T10:52:15-03:00.
+</ADDITIONAL_METADATA>

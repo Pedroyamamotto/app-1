@@ -13,7 +13,13 @@ const NUMBER_WORDS_PT: Record<number, string> = {
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 const getFirstProductSegment = (value: unknown) => {
-  const raw = String(value || '').trim();
+  let raw = String(value || '').trim();
+  if (raw.startsWith('=')) {
+    raw = raw.substring(1).trim();
+  }
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    raw = raw.substring(1, raw.length - 1).trim();
+  }
   if (!raw) return '';
   return raw.split('|')[0]?.trim() || raw;
 };

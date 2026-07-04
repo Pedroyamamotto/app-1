@@ -10,10 +10,13 @@ import AdmRelatoriosScreen from '../screens/adm/AdmRelatoriosScreen';
 import AdmTecnicosScreen from '../screens/adm/AdmTecnicosScreen';
 import AgendaScreen from '../screens/AgendaScreen';
 import DetalhesServicoScreen from '../screens/DetalhesServicoScreen';
-import GerHomeScreen from '../screens/ger/GerHomeScreen';
+import MinhaEquipeScreen from '../screens/ger/MinhaEquipeScreen';
 import HistoricoScreen from '../screens/HistoricoScreen';
 import HomeScreen from '../screens/HomeScreen';
 import PedidoScreen from '../screens/PedidoScreen';
+import AdmGerentesScreen from '../screens/adm/AdmGerentesScreen';
+import GerServiceDetailScreen from '../screens/ger/GerServiceDetailScreen';
+import GerServiceHistoryScreen from '../screens/ger/GerServiceHistoryScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -29,7 +32,7 @@ function MainTabs() {
 
 function UserTabs() {
   return (
-    <Tab.Navigator
+    <Tab.Navigator id="tecnico-tabs"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarHideOnKeyboard: true,
@@ -91,7 +94,7 @@ function UserTabs() {
 
 function GerenteTabs() {
   return (
-    <Tab.Navigator
+    <Tab.Navigator id="gerente-tabs"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarHideOnKeyboard: true,
@@ -120,9 +123,10 @@ function GerenteTabs() {
         },
         tabBarIcon: ({ color, focused }) => {
           const icons = {
-            Pedidos: 'home-outline',
-            Tecnicos: 'account-check-outline',
-            Relatorios: 'chart-bar',
+            Home: 'home-outline',
+            Agenda: 'calendar-month-outline',
+            Historico: 'history',
+            Equipe: 'account-group-outline',
           } as const;
           const iconName = icons[route.name as keyof typeof icons] || 'circle-outline';
           const iconSize = 23;
@@ -143,16 +147,17 @@ function GerenteTabs() {
         },
       })}
     >
-      <Tab.Screen name="Pedidos" component={GerHomeScreen} />
-      <Tab.Screen name="Tecnicos" component={AdmTecnicosScreen} />
-      <Tab.Screen name="Relatorios" component={AdmRelatoriosScreen} />
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Agenda" component={AgendaScreen} />
+      <Tab.Screen name="Historico" component={HistoricoScreen} />
+      <Tab.Screen name="Equipe" component={MinhaEquipeScreen} />
     </Tab.Navigator>
   );
 }
 
 function AdminTabs() {
   return (
-    <Tab.Navigator
+    <Tab.Navigator id="admin-tabs"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarHideOnKeyboard: true,
@@ -183,6 +188,7 @@ function AdminTabs() {
           const icons = {
             Pedidos: 'home-outline',
             Tecnicos: 'account-check-outline',
+            Gerentes: 'account-tie-outline',
             Relatorios: 'chart-bar',
           } as const;
 
@@ -207,6 +213,7 @@ function AdminTabs() {
     >
       <Tab.Screen name="Pedidos" component={AdmHomeScreen} />
       <Tab.Screen name="Tecnicos" component={AdmTecnicosScreen} />
+      <Tab.Screen name="Gerentes" component={AdmGerentesScreen} />
       <Tab.Screen name="Relatorios" component={AdmRelatoriosScreen} />
     </Tab.Navigator>
   );
@@ -215,10 +222,12 @@ function AdminTabs() {
 // MainStack contém todas as telas que um usuário autenticado pode ver.
 export default function MainStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator id="main-stack" screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="AdmAdicionarImagem" component={AdmAdicionarImagemScreen} />
       <Stack.Screen name="DetalhesServico" component={DetalhesServicoScreen} />
+      <Stack.Screen name="GerServiceDetail" component={GerServiceDetailScreen} />
+      <Stack.Screen name="GerServiceHistory" component={GerServiceHistoryScreen} />
       <Stack.Screen name="Pedido" component={PedidoScreen} />
     </Stack.Navigator>
   );

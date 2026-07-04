@@ -81,3 +81,20 @@ export async function appendBase64ToForm(
     } as any);
   }
 }
+
+/**
+ * Remove o caractere '=' que às vezes vem no início de textos do Bling (fórmula do Excel)
+ * e também remove aspas ao redor caso existam.
+ */
+export function cleanText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let str = String(value).trim();
+  if (str.startsWith('=')) {
+    str = str.substring(1).trim();
+  }
+  if (str.startsWith('"') && str.endsWith('"')) {
+    str = str.substring(1, str.length - 1).trim();
+  }
+  return str;
+}
+

@@ -7,12 +7,12 @@ import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageZoomModal from '../../components/ImageZoomModal';
 import PhotoUploadModal from '../../components/PhotoUploadModal';
-import { assignAdminService, createAdminServiceRequest, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, fetchAdminServiceFinalizacao, type AdminDashboardData, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
+import { assignAdminService, createAdminServiceRequest, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, fetchAdminServiceFinalizacao, fetchAdminClientesFromApi, fetchAdminGerentesFromApi, type AdminDashboardData, type AdminTecnicoUser, type AdminCliente, type AdminGerenteUser } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import StandardImage from '../../components/StandardImage';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
-import { apiFetch } from '../../constants/api';
+import { apiFetch, API_BASE_URL } from '../../constants/api';
 import { useUser } from '../../context/UserContext';
 import type { AdminService, ChecklistItem, DropdownKey, FilterState, NaoRealizadoDetail, NewServiceForm, ReagendarForm, ServiceDetail, UploadedPhoto } from './components/types';
 
@@ -39,13 +39,30 @@ import {
 
 // Valor padrão para formulário de novo serviço
 const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
+  clientMode: 'new',
+  clienteId: '',
   nomeCompleto: '',
+  cpf: '',
+  ie: '',
+  tipo: '',
   telefone: '',
-  cep: '',
+  celular: '',
   email: '',
+  bling_pedido_id: '',
+  rua: '',
+  numero: '',
+  complemento: '',
+  bairro: '',
+  cidade: '',
+  estado: '',
+  cep: '',
   endereco: '',
   observacoes: '',
   descricao: '',
+  valor: '',
+  forma_de_pagamento: '',
+  descricao_pagamento: '',
+  chaveDePagamento: '',
   tecnicoResponsavel: '',
   dataHoraVisita: '',
 };
@@ -96,6 +113,11 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const [showAtribuirCal, setShowAtribuirCal] = useState(false);
   const [showAtribuirTime, setShowAtribuirTime] = useState(false);
   const [tecnicosApi, setTecnicosApi] = useState<AdminTecnicoUser[]>([]);
+  const [gerentesApi, setGerentesApi] = useState<AdminGerenteUser[]>([]);
+  const [clientesList, setClientesList] = useState<AdminCliente[]>([]);
+  const [searchClientQuery, setSearchClientQuery] = useState('');
+  const [selectedClient, setSelectedClient] = useState<AdminCliente | null>(null);
+  const [isLoadingClientes, setIsLoadingClientes] = useState(false);
 
   const [adicionarImagemVisible, setAdicionarImagemVisible] = useState(false);
   const [adicionarImagemTarget, setAdicionarImagemTarget] = useState<AdminService | null>(null);
@@ -208,7 +230,7 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
       }
 
       // Monta o payload padrão
-      const payload = {
+      const payload: any = {
         descricao_servico: editForm.descricao || '',
         status: '',
         data_agendada: editForm.data || '',
@@ -460,6 +482,17 @@ const openDetailModal = async (item: AdminService) => {
         done: Boolean(check?.status ?? check?.done),
       }));
 
+  const hasComprovante = !!(
+    mergedItem.has_comprovante ||
+    mergedItem.hasComprovante ||
+    (fullService as any)?.has_comprovante ||
+    (fullService as any)?.comprovante_pagamento
+  );
+
+  const comprovanteUri = hasComprovante
+    ? encodeURI(`${API_BASE_URL}/api/admin/services/comprovante/${item.id}`)
+    : undefined;
+
   setSelectedService({
     ...(mergedItem as any),
     checklist: checklistFromApi,
@@ -467,7 +500,8 @@ const openDetailModal = async (item: AdminService) => {
     fotosContextoUris: finalizacao?.fotos?.length ? finalizacao.fotos : mergedItem.fotosContextoUris || [],
     assinaturaUri: finalizacao?.assinatura || mergedItem.assinaturaUri,
     observacoes: finalizacao?.observacoes || mergedItem.observacoes,
-    comprovanteUri: (mergedItem as any).comprovanteUri || item.comprovanteUri,
+    comprovanteUri,
+    motivoSemComprovante: mergedItem.motivoSemComprovante || finalizacao?.motivoSemComprovante || item.motivoSemComprovante || (mergedItem as any).motivo_sem_comprovante || (finalizacao as any)?.motivo_sem_comprovante || undefined,
   });
 };
 
@@ -520,10 +554,25 @@ const openDetailModal = async (item: AdminService) => {
     closeFilterModal();
   };
 
+  const loadClientes = async () => {
+    try {
+      setIsLoadingClientes(true);
+      const list = await fetchAdminClientesFromApi();
+      setClientesList(list);
+    } catch (e) {
+      console.warn('Erro ao carregar clientes:', e);
+    } finally {
+      setIsLoadingClientes(false);
+    }
+  };
+
   const openCreateModal = () => {
     setNewServiceForm(DEFAULT_NEW_SERVICE_FORM);
     setIsAssignDropdownOpen(false);
+    setSearchClientQuery('');
+    setSelectedClient(null);
     setIsCreateModalVisible(true);
+    loadClientes();
   };
 
   const closeCreateModal = () => {
@@ -582,7 +631,7 @@ const openDetailModal = async (item: AdminService) => {
       return;
     }
 
-    const selectedTecnico = tecnicosApi.find((tecnico) => tecnico.nome === newServiceForm.tecnicoResponsavel) || null;
+    const selectedTecnico = combinedTecnicosAndGerentes.find((tecnico) => tecnico.nome === newServiceForm.tecnicoResponsavel) || null;
     const tecnicoId = selectedTecnico && newServiceForm.tecnicoResponsavel !== 'Selecionar depois' ? selectedTecnico.id : undefined;
 
     try {
@@ -598,6 +647,7 @@ const openDetailModal = async (item: AdminService) => {
         dataAgendadaIso: schedule.dataAgendadaIso,
         horaAgendada: schedule.horaAgendada,
         tecnicoId,
+        clienteId: newServiceForm.clientMode === 'existing' ? newServiceForm.clienteId : undefined,
       });
 
       closeCreateModal();
@@ -616,15 +666,17 @@ const openDetailModal = async (item: AdminService) => {
     }
 
     try {
-      const [nextServices, nextTecnicos, nextDash] = await Promise.all([
+      const [nextServices, nextTecnicos, nextDash, nextGerentes] = await Promise.all([
         fetchAdminServicesFromApi(),
         fetchAdminTecnicosFromApi(),
         fetchAdminDashboardFromApi(),
+        fetchAdminGerentesFromApi(),
       ]);
       setServices(nextServices);
       setDashboardData(nextDash);
       setLoadError(null);
       setTecnicosApi(nextTecnicos);
+      setGerentesApi(nextGerentes);
     } catch (error) {
         setLoadError(error instanceof Error ? error.message : 'Nao foi possivel carregar os dados da area admin.');
       console.warn('Erro ao carregar pedidos admin:', error);
@@ -668,27 +720,43 @@ const openDetailModal = async (item: AdminService) => {
     };
   }, [dashboardData]);
 
+  const combinedTecnicosAndGerentes = useMemo(() => {
+    const list = [
+      ...tecnicosApi.map(t => ({ id: t.id, nome: t.nome, email: t.email, telefone: t.telefone })),
+      ...gerentesApi.map(g => ({ id: g.id, nome: g.nome, email: g.email, telefone: g.telefone }))
+    ];
+    const unique: typeof list = [];
+    const seen = new Set<string>();
+    for (const item of list) {
+      if (item.nome && !seen.has(item.nome)) {
+        seen.add(item.nome);
+        unique.push(item);
+      }
+    }
+    return unique.sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [tecnicosApi, gerentesApi]);
+
   const tecnicoOptions = useMemo(() => {
     const dynamicTecnicos = [
       ...new Set([
         ...services.map((service) => service.tecnico).filter((name) => name && name !== 'Nao atribuido'),
-        ...tecnicosApi.map((tecnico) => tecnico.nome),
+        ...combinedTecnicosAndGerentes.map((t) => t.nome),
       ]),
     ].sort();
     return ['Todos os Tecnicos', ...dynamicTecnicos];
-  }, [services, tecnicosApi]);
+  }, [services, combinedTecnicosAndGerentes]);
 
   const createAssignOptions = useMemo(() => {
-    return ['Selecionar depois', ...tecnicosApi.map((tecnico) => tecnico.nome).sort((a, b) => a.localeCompare(b))];
-  }, [tecnicosApi]);
+    return ['Selecionar depois', ...combinedTecnicosAndGerentes.map((t) => t.nome)];
+  }, [combinedTecnicosAndGerentes]);
 
   const tecnicoAtribuidoSelecionado = useMemo(() => {
-    return tecnicosApi.find((tecnico) => tecnico.id === atribuirForm.tecnicoId) || null;
-  }, [tecnicosApi, atribuirForm.tecnicoId]);
+    return combinedTecnicosAndGerentes.find((tecnico) => tecnico.id === atribuirForm.tecnicoId) || null;
+  }, [combinedTecnicosAndGerentes, atribuirForm.tecnicoId]);
 
   const tecnicoReagendarSelecionado = useMemo(() => {
-    return tecnicosApi.find((tecnico) => tecnico.id === reagendarForm.tecnicoId) || null;
-  }, [tecnicosApi, reagendarForm.tecnicoId]);
+    return combinedTecnicosAndGerentes.find((tecnico) => tecnico.id === reagendarForm.tecnicoId) || null;
+  }, [combinedTecnicosAndGerentes, reagendarForm.tecnicoId]);
 
   const filteredServices = useMemo(() => {
     const statusCode = statusFilterToCode[appliedFilters.status] ?? null;
@@ -1094,156 +1162,373 @@ const openDetailModal = async (item: AdminService) => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.createModalCard}>
-            <ScrollView contentContainerStyle={styles.createModalContent} showsVerticalScrollIndicator
-            >
+            <ScrollView contentContainerStyle={styles.createModalContent} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
               <Text style={styles.createTitle}>Cadastrar Novo Pedido</Text>
-              <Text style={styles.createSubtitle}>Preencha os dados do cliente e do servico</Text>
+              <Text style={styles.createSubtitle}>Selecione um cliente existente ou cadastre um novo para o serviço</Text>
 
-              <View style={styles.sectionHeader}>
-                <Feather name="user" size={18} color="#7A1A1A" />
-                <Text style={styles.sectionTitle}>Dados do Cliente</Text>
-              </View>
-
-              <Text style={styles.inputLabel}>Nome Completo *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: Joao da Silva"
-                placeholderTextColor="#64748b"
-                value={newServiceForm.nomeCompleto}
-                onChangeText={(value) => setFormField('nomeCompleto', value)}
-              />
-
-              <View style={styles.rowTwoColumns}>
-                <View style={styles.columnHalf}>
-                  <Text style={styles.inputLabel}>Telefone *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="(11) 98765-4321"
-                    placeholderTextColor="#64748b"
-                    value={newServiceForm.telefone}
-                    onChangeText={(value) => setFormField('telefone', value)}
+              {/* Segmented control for Client Mode */}
+              <View style={styles.tabContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.tabButton,
+                    newServiceForm.clientMode === 'existing' && styles.tabButtonActive,
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setFormField('clientMode', 'existing');
+                    setSelectedClient(null);
+                    setFormField('clienteId', '');
+                    setFormField('nomeCompleto', '');
+                    setFormField('telefone', '');
+                    setFormField('email', '');
+                    setFormField('cep', '');
+                    setFormField('endereco', '');
+                  }}
+                >
+                  <Feather
+                    name="users"
+                    size={16}
+                    color={newServiceForm.clientMode === 'existing' ? '#fff' : '#475569'}
                   />
-                </View>
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      newServiceForm.clientMode === 'existing' && styles.tabButtonTextActive,
+                    ]}
+                  >
+                    Cliente Existente
+                  </Text>
+                </TouchableOpacity>
 
-                <View style={styles.columnHalf}>
-                  <Text style={styles.inputLabel}>CEP *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="01310-100"
-                    placeholderTextColor="#64748b"
-                    value={newServiceForm.cep}
-                    onChangeText={(value) => setFormField('cep', value)}
+                <TouchableOpacity
+                  style={[
+                    styles.tabButton,
+                    newServiceForm.clientMode === 'new' && styles.tabButtonActive,
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setFormField('clientMode', 'new');
+                    setSelectedClient(null);
+                    setFormField('clienteId', '');
+                    setFormField('nomeCompleto', '');
+                    setFormField('telefone', '');
+                    setFormField('email', '');
+                    setFormField('cep', '');
+                    setFormField('endereco', '');
+                  }}
+                >
+                  <Feather
+                    name="user-plus"
+                    size={16}
+                    color={newServiceForm.clientMode === 'new' ? '#fff' : '#475569'}
                   />
-                </View>
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      newServiceForm.clientMode === 'new' && styles.tabButtonTextActive,
+                    ]}
+                  >
+                    Novo Cliente
+                  </Text>
+                </TouchableOpacity>
               </View>
 
-              <Text style={styles.inputLabel}>E-mail *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="cliente@email.com"
-                placeholderTextColor="#64748b"
-                value={newServiceForm.email}
-                onChangeText={(value) => setFormField('email', value)}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-
-              <Text style={styles.inputLabel}>Endereco Completo *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Rua, numero - Bairro, Cidade"
-                placeholderTextColor="#64748b"
-                value={newServiceForm.endereco}
-                onChangeText={(value) => setFormField('endereco', value)}
-              />
-
-              <Text style={styles.inputLabel}>Observacoes</Text>
-              <TextInput
-                style={[styles.input, styles.inputMultiline]}
-                placeholder="Ex: Portao azul, interfone 204"
-                placeholderTextColor="#64748b"
-                multiline
-                textAlignVertical="top"
-                value={newServiceForm.observacoes}
-                onChangeText={(value) => setFormField('observacoes', value)}
-              />
-
-              <View style={styles.sectionHeader}>
-                <Feather name="box" size={18} color="#7A1A1A" />
-                <Text style={styles.sectionTitle}>Servico</Text>
-              </View>
-
-              <Text style={styles.inputLabel}>Descricao *</Text>
-              <TextInput
-                style={[styles.input, styles.inputMultiline]}
-                placeholder="Ex: Instalacao de Fechadura Digital ServiYama SY-500"
-                placeholderTextColor="#64748b"
-                multiline
-                textAlignVertical="top"
-                value={newServiceForm.descricao}
-                onChangeText={(value) => setFormField('descricao', value)}
-              />
-
-              <View style={styles.sectionHeader}>
-                <Feather name="calendar" size={18} color="#7A1A1A" />
-                <Text style={styles.sectionTitle}>Atribuicao (Opcional)</Text>
-              </View>
-
-              <Text style={styles.inputLabel}>Tecnico Responsavel</Text>
-              <TouchableOpacity
-                style={styles.inputSelect}
-                activeOpacity={0.9}
-                onPress={() => setIsAssignDropdownOpen((prev) => !prev)}
-              >
-                <Text style={styles.inputSelectText}>{newServiceForm.tecnicoResponsavel}</Text>
-                <Feather name="chevron-down" size={18} color="#9ca3af" />
-              </TouchableOpacity>
-
-              {isAssignDropdownOpen ? (
-                <View style={styles.dropdownList}>
-                  {createAssignOptions.map((option, index) => {
-                    const isSelected = newServiceForm.tecnicoResponsavel === option;
-                    return (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.dropdownOption,
-                          isSelected && styles.dropdownOptionSelected,
-                          index === createAssignOptions.length - 1 && styles.dropdownOptionLast,
-                        ]}
-                        activeOpacity={0.9}
-                        onPress={() => {
-                          setFormField('tecnicoResponsavel', option);
-                          setIsAssignDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={styles.dropdownOptionText}>{option}</Text>
-                        {isSelected ? <Feather name="check" size={18} color="#6b7280" /> : null}
+              {/* Client Search Section */}
+              {newServiceForm.clientMode === 'existing' && (
+                <View style={styles.clientSearchSection}>
+                  <View style={styles.clientSearchBox}>
+                    <Feather name="search" size={18} color="#94a3b8" />
+                    <TextInput
+                      style={styles.clientSearchInput}
+                      placeholder="Buscar cliente por nome, telefone ou e-mail..."
+                      placeholderTextColor="#94a3b8"
+                      value={searchClientQuery}
+                      onChangeText={setSearchClientQuery}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="default"
+                    />
+                    {searchClientQuery ? (
+                      <TouchableOpacity onPress={() => setSearchClientQuery('')}>
+                        <Feather name="x-circle" size={16} color="#94a3b8" />
                       </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  {/* Results List */}
+                  {searchClientQuery.trim().length > 0 && (() => {
+                    const normalizedQuery = searchClientQuery.toLowerCase().trim();
+                    const filtered = clientesList.filter(
+                      (c) =>
+                        c.nome.toLowerCase().includes(normalizedQuery) ||
+                        c.telefone.includes(normalizedQuery) ||
+                        c.email.toLowerCase().includes(normalizedQuery)
                     );
-                  })}
+
+                    if (filtered.length === 0) {
+                      return (
+                        <View style={styles.noClientsFound}>
+                          <Text style={styles.noClientsFoundText}>Nenhum cliente correspondente.</Text>
+                        </View>
+                      );
+                    }
+
+                    return (
+                      <View style={styles.clientResultsContainer}>
+                        {filtered.slice(0, 5).map((c) => {
+                          const isSelected = selectedClient?.id === c.id;
+                          return (
+                            <TouchableOpacity
+                              key={c.id}
+                              style={[
+                                styles.clientResultItem,
+                                isSelected && styles.clientResultItemActive,
+                              ]}
+                              onPress={() => {
+                                setSelectedClient(c);
+                                setFormField('clienteId', c.id);
+                                setFormField('nomeCompleto', c.nome);
+                                setFormField('telefone', c.telefone);
+                                setFormField('email', c.email);
+                                setFormField('cep', c.cep || '');
+                                const formattedEnd = [c.rua, c.numero, c.bairro, c.cidade, c.estado]
+                                  .filter(Boolean)
+                                  .join(', ');
+                                setFormField('endereco', formattedEnd);
+                                setSearchClientQuery('');
+                              }}
+                            >
+                              <View style={styles.clientResultAvatar}>
+                                <Feather name="user" size={16} color="#7A1A1A" />
+                              </View>
+                              <View style={styles.clientResultInfo}>
+                                <Text style={styles.clientResultName}>{c.nome}</Text>
+                                <Text style={styles.clientResultDetails}>
+                                  {c.telefone}
+                                  {c.email ? ` • ${c.email}` : ''}
+                                </Text>
+                              </View>
+                              <Feather
+                                name={isSelected ? 'check-circle' : 'chevron-right'}
+                                size={18}
+                                color={isSelected ? '#10b981' : '#94a3b8'}
+                              />
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    );
+                  })()}
                 </View>
-              ) : null}
+              )}
 
-              <Text style={styles.helperText}>Deixe em branco para atribuir posteriormente</Text>
+              {/* Selected Client Card */}
+              {newServiceForm.clientMode === 'existing' && selectedClient && (
+                <View style={styles.selectedClientCard}>
+                  <View style={styles.selectedClientCardHeader}>
+                    <Feather name="user-check" size={20} color="#15803d" />
+                    <Text style={styles.selectedClientCardTitle}>Cliente Selecionado</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setSelectedClient(null);
+                        setFormField('clienteId', '');
+                        setFormField('nomeCompleto', '');
+                        setFormField('telefone', '');
+                        setFormField('email', '');
+                        setFormField('cep', '');
+                        setFormField('endereco', '');
+                      }}
+                      style={styles.clearSelectedClientBtn}
+                    >
+                      <Feather name="x" size={16} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.selectedClientBody}>
+                    <Text style={styles.selectedClientName}>{selectedClient.nome}</Text>
+                    <Text style={styles.selectedClientContact}>
+                      {selectedClient.telefone}
+                      {selectedClient.email ? ` • ${selectedClient.email}` : ''}
+                    </Text>
+                    {selectedClient.cep && (
+                      <Text style={styles.selectedClientAddress}>CEP: {selectedClient.cep}</Text>
+                    )}
+                    {(selectedClient.rua || selectedClient.cidade) && (
+                      <Text style={styles.selectedClientAddress}>
+                        {[
+                          selectedClient.rua,
+                          selectedClient.numero,
+                          selectedClient.bairro,
+                          selectedClient.cidade,
+                          selectedClient.estado,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              )}
 
-              <Text style={styles.inputLabel}>Data e Hora da Visita</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="dd/mm/aaaa --:--"
-                placeholderTextColor="#64748b"
-                value={newServiceForm.dataHoraVisita}
-                onChangeText={(value) => setFormField('dataHoraVisita', value)}
-              />
+              {/* Form Input fields - Only visible in new client mode */}
+              {newServiceForm.clientMode === 'new' && (
+                <>
+                  <View style={styles.sectionHeader}>
+                    <Feather name="user" size={18} color="#7A1A1A" />
+                    <Text style={styles.sectionTitle}>Dados do Cliente</Text>
+                  </View>
 
-              <Text style={styles.helperText}>Defina quando o servico sera realizado</Text>
+                  <Text style={styles.inputLabel}>Nome Completo *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Ex: Joao da Silva"
+                    placeholderTextColor="#64748b"
+                    value={newServiceForm.nomeCompleto}
+                    onChangeText={(value) => setFormField('nomeCompleto', value)}
+                  />
 
-              <View style={styles.createDivider} />
+                  <View style={styles.rowTwoColumns}>
+                    <View style={styles.columnHalf}>
+                      <Text style={styles.inputLabel}>Telefone *</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="(11) 98765-4321"
+                        placeholderTextColor="#64748b"
+                        value={newServiceForm.telefone}
+                        onChangeText={(value) => setFormField('telefone', value)}
+                      />
+                    </View>
 
-              <TouchableOpacity style={[styles.createButton, isCreatingService && { opacity: 0.7 }]} activeOpacity={0.9} onPress={handleCreateService} disabled={isCreatingService}>
-                <Feather name="check-circle" size={18} color="#fff" />
-                <Text style={styles.createButtonText}>{isCreatingService ? 'Criando...' : 'Criar Pedido'}</Text>
-              </TouchableOpacity>
+                    <View style={styles.columnHalf}>
+                      <Text style={styles.inputLabel}>CEP *</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="01310-100"
+                        placeholderTextColor="#64748b"
+                        value={newServiceForm.cep}
+                        onChangeText={(value) => setFormField('cep', value)}
+                      />
+                    </View>
+                  </View>
+
+                  <Text style={styles.inputLabel}>E-mail *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="cliente@email.com"
+                    placeholderTextColor="#64748b"
+                    value={newServiceForm.email}
+                    onChangeText={(value) => setFormField('email', value)}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+
+                  <Text style={styles.inputLabel}>Endereco Completo *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Rua, numero - Bairro, Cidade"
+                    placeholderTextColor="#64748b"
+                    value={newServiceForm.endereco}
+                    onChangeText={(value) => setFormField('endereco', value)}
+                  />
+
+                  <Text style={styles.inputLabel}>Observacoes</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputMultiline]}
+                    placeholder="Ex: Portao azul, interfone 204"
+                    placeholderTextColor="#64748b"
+                    multiline
+                    textAlignVertical="top"
+                    value={newServiceForm.observacoes}
+                    onChangeText={(value) => setFormField('observacoes', value)}
+                  />
+                </>
+              )}
+
+              {/* Service & Schedule Section */}
+              {(newServiceForm.clientMode === 'new' || selectedClient) && (
+                <>
+                  <View style={styles.sectionHeader}>
+                    <Feather name="box" size={18} color="#7A1A1A" />
+                    <Text style={styles.sectionTitle}>Servico</Text>
+                  </View>
+
+                  <Text style={styles.inputLabel}>Descricao *</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputMultiline]}
+                    placeholder="Ex: Instalacao de Fechadura Digital ServiYama SY-500"
+                    placeholderTextColor="#64748b"
+                    multiline
+                    textAlignVertical="top"
+                    value={newServiceForm.descricao}
+                    onChangeText={(value) => setFormField('descricao', value)}
+                  />
+
+                  <View style={styles.sectionHeader}>
+                    <Feather name="calendar" size={18} color="#7A1A1A" />
+                    <Text style={styles.sectionTitle}>Atribuicao (Opcional)</Text>
+                  </View>
+
+                  <Text style={styles.inputLabel}>Tecnico Responsavel</Text>
+                  <TouchableOpacity
+                    style={styles.inputSelect}
+                    activeOpacity={0.9}
+                    onPress={() => setIsAssignDropdownOpen((prev) => !prev)}
+                  >
+                    <Text style={styles.inputSelectText}>{newServiceForm.tecnicoResponsavel}</Text>
+                    <Feather name="chevron-down" size={18} color="#9ca3af" />
+                  </TouchableOpacity>
+
+                  {isAssignDropdownOpen ? (
+                    <View style={styles.dropdownList}>
+                      {createAssignOptions.map((option, index) => {
+                        const isSelected = newServiceForm.tecnicoResponsavel === option;
+                        return (
+                          <TouchableOpacity
+                            key={option}
+                            style={[
+                              styles.dropdownOption,
+                              isSelected && styles.dropdownOptionSelected,
+                              index === createAssignOptions.length - 1 && styles.dropdownOptionLast,
+                            ]}
+                            activeOpacity={0.9}
+                            onPress={() => {
+                              setFormField('tecnicoResponsavel', option);
+                              setIsAssignDropdownOpen(false);
+                            }}
+                          >
+                            <Text style={styles.dropdownOptionText}>{option}</Text>
+                            {isSelected ? <Feather name="check" size={18} color="#6b7280" /> : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+
+                  <Text style={styles.helperText}>Deixe em branco para atribuir posteriormente</Text>
+
+                  <Text style={styles.inputLabel}>Data e Hora da Visita</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="dd/mm/aaaa --:--"
+                    placeholderTextColor="#64748b"
+                    value={newServiceForm.dataHoraVisita}
+                    onChangeText={(value) => setFormField('dataHoraVisita', value)}
+                  />
+
+                  <Text style={styles.helperText}>Defina quando o servico sera realizado</Text>
+
+                  <View style={styles.createDivider} />
+
+                  <TouchableOpacity
+                    style={[styles.createButton, isCreatingService && { opacity: 0.7 }]}
+                    activeOpacity={0.9}
+                    onPress={handleCreateService}
+                    disabled={isCreatingService}
+                  >
+                    <Feather name="check-circle" size={18} color="#fff" />
+                    <Text style={styles.createButtonText}>{isCreatingService ? 'Criando...' : 'Criar Pedido'}</Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
               <TouchableOpacity style={styles.cancelCreateButton} activeOpacity={0.9} onPress={closeCreateModal}>
                 <Text style={styles.cancelCreateButtonText}>Cancelar</Text>
@@ -1572,7 +1857,7 @@ const openDetailModal = async (item: AdminService) => {
 
               {isAtribuirTecnicoOpen ? (
                 <View style={styles.dropdownList}>
-                  {tecnicosApi.map((option, index, arr) => {
+                  {combinedTecnicosAndGerentes.map((option, index, arr) => {
                     const isSelected = atribuirForm.tecnicoId === option.id;
                     return (
                       <TouchableOpacity
@@ -1881,7 +2166,7 @@ const openDetailModal = async (item: AdminService) => {
 
             {isReagendarTecnicoOpen ? (
               <View style={styles.dropdownList}>
-                {tecnicosApi.map((option, index, arr) => {
+                {combinedTecnicosAndGerentes.map((option, index, arr) => {
                   const isSelected = reagendarForm.tecnicoId === option.id;
                   return (
                     <TouchableOpacity
@@ -2203,7 +2488,10 @@ const openDetailModal = async (item: AdminService) => {
               {/* Comprovante de Pagamento */}
               {(() => {
                 const hasCobranca = selectedService.checklist?.some((c) => c.label?.includes('Cobrança feita') && c.done);
-                if (!hasCobranca || !selectedService.comprovanteUri) return null;
+                const hasComprovante = selectedService.comprovanteUri && String(selectedService.comprovanteUri).trim() !== '';
+                const motivoSem = selectedService.motivoSemComprovante;
+
+                if (!hasCobranca && !hasComprovante && !motivoSem) return null;
 
                 const apiKey = getAdminApiKey();
 
@@ -2213,15 +2501,31 @@ const openDetailModal = async (item: AdminService) => {
                       <Feather name="dollar-sign" size={20} color="#7A1A1A" />
                       <Text style={styles.detailSectionTitle}>Comprovante de Pagamento</Text>
                     </View>
-                    <StandardImage
-                      source={{
-                        uri: selectedService.comprovanteUri,
-                        headers: apiKey ? { 'x-admin-key': apiKey } : { 'x-user-type': 'admin' }
-                      }}
-                      onPress={() => setZoomedImage(selectedService.comprovanteUri!)}
-                      containerStyle={styles.detailPhotoContainer}
-                      imageStyle={styles.detailPhoto}
-                    />
+                    
+                    {hasComprovante ? (
+                      <StandardImage
+                        source={{
+                          uri: selectedService.comprovanteUri!,
+                          headers: apiKey ? { 'x-admin-key': apiKey } : { 'x-user-type': 'admin' }
+                        }}
+                        onPress={() => setZoomedImage(selectedService.comprovanteUri!)}
+                        containerStyle={styles.detailPhotoContainer}
+                        imageStyle={styles.detailPhoto}
+                      />
+                    ) : motivoSem ? (
+                      <View style={styles.motivoCard}>
+                        <Text style={styles.motivoText}>
+                          <Text style={{ fontWeight: 'bold' }}>Sem Comprovante</Text>
+                          {'\n'}Motivo informado: {motivoSem}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.motivoCard, { borderColor: '#fca5a5', backgroundColor: '#fef2f2', borderLeftColor: '#ef4444' }]}>
+                        <Text style={[styles.motivoText, { color: '#991b1b' }]}>
+                          Nenhum comprovante de pagamento enviado.
+                        </Text>
+                      </View>
+                    )}
                   </>
                 );
               })()}
@@ -3349,6 +3653,152 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 10,
     backgroundColor: '#e5e7eb',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  tabButtonActive: {
+    backgroundColor: '#7A1A1A',
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#475569',
+  },
+  tabButtonTextActive: {
+    color: '#fff',
+    fontFamily: 'Inter-Bold',
+  },
+  clientSearchSection: {
+    marginBottom: 20,
+  },
+  clientSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 52,
+    gap: 10,
+  },
+  clientSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#0f172a',
+  },
+  noClientsFound: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  noClientsFoundText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#94a3b8',
+  },
+  clientResultsContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  clientResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 12,
+  },
+  clientResultItemActive: {
+    backgroundColor: '#fef2f2',
+  },
+  clientResultAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fef2f2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clientResultInfo: {
+    flex: 1,
+  },
+  clientResultName: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#1e293b',
+  },
+  clientResultDetails: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  selectedClientCard: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  selectedClientCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  selectedClientCardTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#166534',
+  },
+  clearSelectedClientBtn: {
+    padding: 4,
+  },
+  selectedClientBody: {
+    gap: 4,
+  },
+  selectedClientName: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#1e293b',
+  },
+  selectedClientContact: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#475569',
+  },
+  selectedClientAddress: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  inputDisabled: {
+    backgroundColor: '#f1f5f9',
+    color: '#64748b',
+    borderColor: '#cbd5e1',
   },
 });
 

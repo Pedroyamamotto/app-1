@@ -27,7 +27,11 @@ export type AdminServiceData = {
   telefone?: string;
   clienteId?: string;
   comprovanteUri?: string;
+  tempoTrabalhadoMs?: number;
+  quantidadePausas?: number;
+  iniciadoEm?: string;
   rawClientData?: any;
+  motivoSemComprovante?: string;
 };
 
 export type AdminTecnicoUser = {
@@ -35,6 +39,16 @@ export type AdminTecnicoUser = {
   nome: string;
   email: string;
   telefone: string;
+  gerenteId?: string;
+  criadoEm?: string;
+};
+
+export type AdminGerenteUser = {
+  id: string;
+  nome: string;
+  email: string;
+  telefone: string;
+  tecnicosVinculados: number;
 };
 
 export type AdminTechnicianData = {
@@ -51,6 +65,8 @@ export type AdminTechnicianData = {
   total: number;
   ativos: number;
   concluidos: number;
+  tempoTotalMs?: number;
+  tempoMedioMs?: number;
   observacoes: string;
   atendimentos: {
     id: string;
@@ -87,12 +103,26 @@ export type AdminDashboardTecnico = {
   pendentes: number;
   total: number;
   taxa_conclusao: number;
+  tempo_total_ms?: number;
+  tempo_medio_ms?: number;
 };
 
 export type AdminDashboardData = {
   resumo: AdminDashboardSummary;
   desempenho_tecnicos: AdminDashboardTecnico[];
 };
+
+export function formatTimeDuration(ms?: number | null): string {
+  if (ms == null || ms <= 0) return '0m';
+  const totalMin = Math.floor(ms / 60000);
+  if (totalMin === 0) return '< 1m';
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0) {
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${m}m`;
+}
 
 type AssignAdminServicePayload = {
   tecnicoId: string;
@@ -121,7 +151,7 @@ type UploadServiceContextPhotoPayload = {
   fileName?: string;
 };
 
-type CreateAdminServiceRequestPayload = {
+export type CreateAdminServiceRequestPayload = {
   nomeCompleto: string;
   telefone: string;
   email: string;
@@ -132,6 +162,7 @@ type CreateAdminServiceRequestPayload = {
   dataAgendadaIso: string;
   horaAgendada: string;
   tecnicoId?: string;
+  clienteId?: string;
 };
 
 export type AdminServiceFinalizacao = {
@@ -139,6 +170,7 @@ export type AdminServiceFinalizacao = {
   fotos?: string[];
   assinatura?: string;
   observacoes?: string;
+  motivoSemComprovante?: string;
 };
 
 const normalizeFinalizacaoChecklist = (value: unknown): { item: string; status: boolean }[] => {
@@ -195,6 +227,7 @@ const normalizeAdminServiceFinalizacao = (payload: unknown): AdminServiceFinaliz
       API_BASE_URL
     ),
     observacoes: base?.observacoes || base?.observacao || base?.notes || servico?.observacoes || undefined,
+    motivoSemComprovante: base?.motivo_sem_comprovante || base?.motivoSemComprovante || servico?.motivo_sem_comprovante || undefined,
   };
 };
 
@@ -264,7 +297,7 @@ const DEFAULT_EMBEDDED_ADMIN_API_KEY = 'ak_live_2026_Yama_9rT4mN7qX2pL6vK1';
 export const getAdminApiKey = () =>
   String(process.env.EXPO_PUBLIC_ADMIN_API_KEY || process.env.ADMIN_API_KEY || DEFAULT_EMBEDDED_ADMIN_API_KEY || '').trim();
 
-const adminHeaders = () => {
+export const adminHeaders = () => {
   const adminApiKey = getAdminApiKey();
 
   if (!adminApiKey && __DEV__ && !hasWarnedMissingAdminKey) {
@@ -352,7 +385,7 @@ export const formatScheduledDate = (value: unknown) => {
 
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (match) {
-    return `${match[3]}/${match[2]}/${match[1].slice(-2)}`;
+    return `${match[3]}/${match[2]}/${match[1]}`;
   }
 
   const parsed = new Date(raw);
@@ -360,7 +393,7 @@ export const formatScheduledDate = (value: unknown) => {
   return parsed.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 };
 
-const formatTimeValue = (value: unknown) => {
+export const formatTimeValue = (value: unknown) => {
   if (!value) return '';
 
   const raw = String(value).trim();
@@ -664,22 +697,25 @@ async function enrichServicesWithClientData(rawServices: any[], assetOriginBase:
       data: formatScheduledDate(service?.data || service?.data_agendada || service?.dataAgendada || service?.date) || '--/--/--',
       status: mapApiStatusToAdmin(service, String(tecnico)),
       checklist,
-      comprovanteUri: encodeURI(`${assetOriginBase}/api/admin/services/comprovante/${serviceId}`),
-      fotoUri: resolveAssetUrl(
-        service?.foto_instalacao ||
-          service?.fotoInstalacao ||
-          service?.fotoInstalacaoObj ||
-          service?.foto_url ||
-          service?.fotoUrl ||
-          service?.foto_path ||
-          service?.fotoPath ||
-          service?.imagem ||
-          service?.image ||
-          service?.anexo_foto ||
-          service?.anexoFoto ||
-          service?.foto,
-        assetOriginBase
-      ),
+      comprovanteUri: (service?.has_comprovante || service?.hasComprovante)
+        ? encodeURI(`${assetOriginBase}/api/admin/services/comprovante/${serviceId}`)
+        : undefined,
+      fotoUri: (() => {
+        const resolved = resolveAssetUrl(
+          service?.foto_instalacao ||
+            service?.fotoInstalacao ||
+            service?.fotoInstalacaoObj ||
+            service?.foto_url ||
+            service?.fotoUrl ||
+            service?.foto_path ||
+            service?.fotoPath,
+          assetOriginBase
+        );
+        // Se a foto de instalação resolver para a mesma URL do comprovante, ignorar
+        const comprovanteUrl = encodeURI(`${assetOriginBase}/api/admin/services/comprovante/${serviceId}`);
+        if (resolved && resolved === comprovanteUrl) return undefined;
+        return resolved;
+      })(),
       fotosContextoUris,
       assinaturaUri: resolveAssetUrl(
         service?.assinatura_url ||
@@ -693,6 +729,7 @@ async function enrichServicesWithClientData(rawServices: any[], assetOriginBase:
       ),
       assinadoPor:
         service?.assinado_por || service?.assinadoPor || service?.nome_assinante || service?.nomeAssinante || undefined,
+      motivoSemComprovante: service?.motivo_sem_comprovante || service?.motivoSemComprovante || undefined,
       horaConclusao:
         formatTimeValue(
           service?.hora_conclusao || service?.horaConclusao || service?.finalizado_em || service?.finalizadoEm || service?.updated_at
@@ -705,6 +742,8 @@ async function enrichServicesWithClientData(rawServices: any[], assetOriginBase:
       telefone: String(telefoneFallback),
       // Guardamos o objeto original do cliente se existir para fallback
       rawClientData: clientData,
+      tempoTrabalhadoMs: Number(service?.tempo_trabalhado_ms || service?.tempoTrabalhadoMs || 0),
+      quantidadePausas: Number(service?.quantidade_pausas || service?.quantidadePausas || 0),
     };
   });
 
@@ -812,6 +851,8 @@ export async function fetchAdminTecnicosFromApi(): Promise<AdminTecnicoUser[]> {
     nome: String(item?.nome || item?.name || `Tecnico ${index + 1}`),
     email: String(item?.email || 'nao.informado@yamamotto.com.br'),
     telefone: String(item?.telefone || item?.phone || 'Nao informado'),
+    gerenteId: item?.gerente_id || item?.gerenteId ? String(item?.gerente_id || item?.gerenteId) : undefined,
+    criadoEm: item?.Created_et || item?.created_at || item?.Created_at || undefined,
   }));
 }
 
@@ -903,29 +944,33 @@ export async function createAdminServiceRequest(payload: CreateAdminServiceReque
   const numeroPedido = `APP-${uniqueSeed}`;
   const blingPvId = `APP-PV-${uniqueSeed}`;
 
-  const enderecoParts = extractAddressParts(payload.endereco);
-  const cepDigits = safeDigits(payload.cep);
-  const cpfDigits = String(nowSeed).padStart(11, '0').slice(-11);
+  let clienteId = payload.clienteId;
 
-  const clienteRes = await apiFetch('/api/clientes', {
-    method: 'POST',
-    headers: adminHeaders(),
-    body: JSON.stringify({
-      nome: payload.nomeCompleto,
-      telefone: payload.telefone,
-      email: payload.email,
-      cpf: cpfDigits,
-      cep: cepDigits || payload.cep,
-      rua: enderecoParts.rua,
-      numero: enderecoParts.numero,
-      bairro: enderecoParts.bairro,
-      cidade: enderecoParts.cidade,
-      estado: enderecoParts.estado,
-    }),
-  });
-  await throwIfNotOk(clienteRes, 'Nao foi possivel criar cliente');
-  const clientePayload = await readJsonSafely(clienteRes);
-  const clienteId = normalizeMongoId((clientePayload as any)?.clienteId || (clientePayload as any)?._id || (clientePayload as any)?.id);
+  if (!clienteId) {
+    const enderecoParts = extractAddressParts(payload.endereco);
+    const cepDigits = safeDigits(payload.cep);
+    const cpfDigits = String(nowSeed).padStart(11, '0').slice(-11);
+
+    const clienteRes = await apiFetch('/api/clientes', {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({
+        nome: payload.nomeCompleto,
+        telefone: payload.telefone,
+        email: payload.email,
+        cpf: cpfDigits,
+        cep: cepDigits || payload.cep,
+        rua: enderecoParts.rua,
+        numero: enderecoParts.numero,
+        bairro: enderecoParts.bairro,
+        cidade: enderecoParts.cidade,
+        estado: enderecoParts.estado,
+      }),
+    });
+    await throwIfNotOk(clienteRes, 'Nao foi possivel criar cliente');
+    const clientePayload = await readJsonSafely(clienteRes);
+    clienteId = normalizeMongoId((clientePayload as any)?.clienteId || (clientePayload as any)?._id || (clientePayload as any)?.id);
+  }
 
   if (!clienteId) {
     throw new Error('API nao retornou clienteId ao criar cliente');
@@ -940,7 +985,7 @@ export async function createAdminServiceRequest(payload: CreateAdminServiceReque
       modelo_produto: payload.descricao,
       tipo_servico: 'instalacao',
       tem_instalacao: true,
-      observacoes: payload.observacoes || null,
+      observacoes: payload.observacoes || undefined,
     }),
   });
   await throwIfNotOk(pedidoRes, 'Nao foi possivel criar pedido');
@@ -959,7 +1004,7 @@ export async function createAdminServiceRequest(payload: CreateAdminServiceReque
       pedido_id: pedidoId,
       cliente_id: clienteId,
       descricao_servico: payload.descricao,
-      observacoes: payload.observacoes || null,
+      observacoes: payload.observacoes || undefined,
       data_agendada: payload.dataAgendadaIso,
       hora_agendada: payload.horaAgendada,
       status: 'aguardando',
@@ -1055,13 +1100,26 @@ export function buildTechniciansFromServices(services: AdminServiceData[]): Admi
       total: 0,
       ativos: 0,
       concluidos: 0,
+      tempoTotalMs: 0,
+      tempoMedioMs: 0,
       observacoes: 'Dados consolidados automaticamente a partir dos servicos retornados pela API.',
       atendimentos: [],
     };
 
     current.total += 1;
-    if (service.status === 'concluido') current.concluidos += 1;
-    if (service.status === 'aguardando' || service.status === 'atribuido') current.ativos += 1;
+    if (service.status === 'concluido') {
+      current.concluidos += 1;
+      if (service.tempoTrabalhadoMs) {
+        current.tempoTotalMs = (current.tempoTotalMs || 0) + service.tempoTrabalhadoMs;
+      }
+    }
+    if (service.status === 'aguardando' || service.status === 'atribuido') {
+      current.ativos += 1;
+    }
+
+    current.tempoMedioMs = current.concluidos > 0 && current.tempoTotalMs
+      ? Math.round(current.tempoTotalMs / current.concluidos)
+      : 0;
 
     current.atendimentos.push({
       id: service.id,
@@ -1100,3 +1158,72 @@ export const fetchAdminServiceFinalizacao = async (
   const payload = await res.json().catch(() => null);
   return normalizeAdminServiceFinalizacao(payload);
 };
+
+export async function fetchAdminGerentesFromApi(): Promise<AdminGerenteUser[]> {
+  const res = await apiFetch('/api/admin/users/gerentes', {
+    headers: adminHeaders(),
+  });
+  await throwIfNotOk(res, 'Nao foi possivel carregar os gerentes');
+
+  const payload = await readJsonSafely(res);
+  const list = Array.isArray(payload?.gerentes) ? payload.gerentes : [];
+
+  return list.map((item: any) => ({
+    id: normalizeMongoId(item?._id || item?.id || ''),
+    nome: String(item?.nome || item?.name || 'Gerente'),
+    email: String(item?.email || ''),
+    telefone: String(item?.telefone || item?.phone || ''),
+    tecnicosVinculados: Number(item?.tecnicosVinculados || 0),
+  }));
+}
+
+export async function updateAdminUser(userId: string, data: any): Promise<void> {
+  const res = await apiFetch(`/api/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: {
+      ...adminHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+  await throwIfNotOk(res, 'Nao foi possivel atualizar o usuario');
+}
+
+export type AdminCliente = {
+  id: string;
+  nome: string;
+  telefone: string;
+  email: string;
+  cpf?: string;
+  cep?: string;
+  rua?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+};
+
+export async function fetchAdminClientesFromApi(): Promise<AdminCliente[]> {
+  const res = await apiFetch('/api/clientes', {
+    headers: adminHeaders(),
+  });
+  await throwIfNotOk(res, 'Nao foi possivel carregar os clientes');
+
+  const payload = await readJsonSafely(res);
+  const list = Array.isArray(payload?.clientes) ? payload.clientes : [];
+
+  return list.map((item: any) => ({
+    id: normalizeMongoId(item?._id || item?.id || ''),
+    nome: String(item?.nome || item?.name || 'Cliente'),
+    telefone: String(item?.telefone || item?.celular || ''),
+    email: String(item?.email || ''),
+    cpf: item?.cpf ? String(item.cpf) : undefined,
+    cep: item?.cep ? String(item.cep) : undefined,
+    rua: item?.rua ? String(item.rua) : undefined,
+    numero: item?.numero ? String(item.numero) : undefined,
+    bairro: item?.bairro ? String(item.bairro) : undefined,
+    cidade: item?.cidade ? String(item.cidade) : undefined,
+    estado: item?.estado ? String(item.estado) : undefined,
+  }));
+}
+

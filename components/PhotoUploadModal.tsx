@@ -3,7 +3,6 @@ import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import StandardImage from './StandardImage';
-import { isWeb } from '../utils/platformUtils';
 
 type UploadedPhoto = {
   uri: string;
@@ -20,13 +19,45 @@ type PhotoUploadModalProps = {
   onNext: (photo: UploadedPhoto) => void;
   onNextMany?: (photos: UploadedPhoto[]) => void;
   allowMultiple?: boolean;
+  maxPhotos?: number;
   title?: string;
   subtitle?: string;
   labelText?: string;
 };
 
-const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowMultiple = false, title = 'Foto do Produto Instalado', subtitle = 'Tire uma foto da fechadura digital instalada', labelText = 'Foto da Fechadura *' }: PhotoUploadModalProps) => {
+const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowMultiple = false, maxPhotos = 4, title = 'Foto do Produto Instalado', subtitle = 'Tire uma foto da fechadura digital instalada', labelText = 'Foto da Fechadura *' }: PhotoUploadModalProps) => {
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
+  const isWeb = Platform.OS === 'web';
+
+  const pickImageWeb = async (captureFromCamera: boolean) => {
+    const doc = (globalThis as any)?.document;
+    if (!doc?.createElement) {
+      alert('Seu navegador nao suporta envio de imagem.');
+      return [] as UploadedPhoto[];
+    }
+
+    return await new Promise<UploadedPhoto[]>((resolve) => {
+      const input = doc.createElement('input') as any;
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.multiple = allowMultiple && !captureFromCamera;
+      if (captureFromCamera) {
+        input.setAttribute('capture', 'environment');
+      }
+
+      input.onchange = () => {
+        const files = Array.from(input.files || []);
+        const mapped = files.map((file) => ({
+          uri: URL.createObjectURL(file),
+          mimeType: file.type || undefined,
+          fileName: file.name || undefined,
+        }));
+        resolve(mapped);
+      };
+
+      input.click();
+    });
+  };
 
   useEffect(() => {
     if (!visible) {
@@ -43,6 +74,18 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
   });
 
   const handleTakePhoto = async () => {
+    if (isWeb) {
+      const mapped = await pickImageWeb(true);
+      if (mapped.length > 0) {
+        if (allowMultiple) {
+          setPhotos((prev) => [...prev, ...mapped]);
+        } else {
+          setPhotos([mapped[0]]);
+        }
+      }
+      return;
+    }
+
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       alert('Desculpe, precisamos da permissão da câmera para fazer isso funcionar!');
@@ -57,7 +100,13 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
     if (!result.canceled) {
       const newPhoto = mapAssetToPhoto(result.assets[0]);
       if (allowMultiple) {
-        setPhotos((prev) => [...prev, newPhoto]);
+        setPhotos((prev) => {
+          if (prev.length >= maxPhotos) {
+            alert(`Você só pode enviar até ${maxPhotos} fotos.`);
+            return prev;
+          }
+          return [...prev, newPhoto];
+        });
       } else {
         setPhotos([newPhoto]);
       }
@@ -65,6 +114,18 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
   };
 
   const handlePickImage = async () => {
+    if (isWeb) {
+      const mapped = await pickImageWeb(false);
+      if (mapped.length > 0) {
+        if (allowMultiple) {
+          setPhotos(mapped);
+        } else {
+          setPhotos([mapped[0]]);
+        }
+      }
+      return;
+    }
+
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       alert('Desculpe, precisamos da permissão da galeria para fazer isso funcionar!');
@@ -74,13 +135,21 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: allowMultiple,
+      selectionLimit: allowMultiple ? maxPhotos - photos.length : 1,
       allowsEditing: false,
       quality: 0.9,
     });
 
     if (!result.canceled) {
       const mapped = result.assets.map(mapAssetToPhoto);
-      setPhotos(mapped);
+      if (allowMultiple) {
+        setPhotos(prev => {
+          const combined = [...prev, ...mapped];
+          return combined.slice(0, maxPhotos);
+        });
+      } else {
+        setPhotos([mapped[0]]);
+      }
     }
   };
 
@@ -105,13 +174,20 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
           <Text style={styles.uploadLabel}>{labelText}</Text>
           
           <View style={styles.selectionRow}>
-            {/* Ocultar botão de tirar foto no Web se não houver suporte (opcional, mas launchCameraAsync funciona no desktop se houver webcam) */}
-            <TouchableOpacity style={styles.selectionButton} onPress={handleTakePhoto}>
+            <TouchableOpacity 
+              style={[styles.selectionButton, (allowMultiple && photos.length >= maxPhotos) && { opacity: 0.5 }]} 
+              onPress={handleTakePhoto}
+              disabled={allowMultiple && photos.length >= maxPhotos}
+            >
               <Feather name="camera" size={24} color="#7A1A1A" />
               <Text style={styles.selectionButtonText}>Tirar Foto</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.selectionButton} onPress={handlePickImage}>
+            <TouchableOpacity 
+              style={[styles.selectionButton, (allowMultiple && photos.length >= maxPhotos) && { opacity: 0.5 }]} 
+              onPress={handlePickImage}
+              disabled={allowMultiple && photos.length >= maxPhotos}
+            >
               <Feather name="image" size={24} color="#7A1A1A" />
               <Text style={styles.selectionButtonText}>Galeria</Text>
             </TouchableOpacity>
@@ -119,18 +195,44 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
 
           {photos.length > 0 && (
             <View style={styles.previewContainer}>
-              <StandardImage
-                source={photos[0].uri}
-                containerStyle={styles.previewImageContainer}
-                imageStyle={styles.previewImage}
-                showZoomLabel={false}
-              />
-              <View style={styles.previewInfo}>
-                <Text style={styles.fileName}>{photos.length} arquivo(s) selecionado(s)</Text>
-                {photos[0].width && photos[0].height ? (
-                  <Text style={styles.previewMeta}>{photos[0].width}x{photos[0].height}</Text>
-                ) : null}
-              </View>
+              {allowMultiple ? (
+                <View style={{ width: '100%', alignItems: 'center' }}>
+                  <Text style={[styles.fileName, { marginBottom: 10 }]}>{photos.length} de {maxPhotos} arquivo(s) selecionado(s)</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
+                    {photos.map((photo, index) => (
+                      <View key={index} style={{ position: 'relative' }}>
+                        <StandardImage
+                          source={photo.uri}
+                          containerStyle={{ width: 100, height: 100, borderRadius: 8, overflow: 'hidden' }}
+                          imageStyle={{ width: '100%', height: '100%' }}
+                          showZoomLabel={false}
+                        />
+                        <TouchableOpacity
+                          style={{ position: 'absolute', top: -5, right: -5, backgroundColor: '#fff', borderRadius: 12, padding: 2, elevation: 2, shadowColor: '#000', shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.3 }}
+                          onPress={() => setPhotos(prev => prev.filter((_, i) => i !== index))}
+                        >
+                          <Feather name="x-circle" size={20} color="#ef4444" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <StandardImage
+                    source={photos[0].uri}
+                    containerStyle={styles.previewImageContainer}
+                    imageStyle={styles.previewImage}
+                    showZoomLabel={false}
+                  />
+                  <View style={styles.previewInfo}>
+                    <Text style={styles.fileName}>{photos.length} arquivo(s) selecionado(s)</Text>
+                    {photos[0].width && photos[0].height ? (
+                      <Text style={styles.previewMeta}>{photos[0].width}x{photos[0].height}</Text>
+                    ) : null}
+                  </View>
+                </>
+              )}
             </View>
           )}
           

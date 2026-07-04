@@ -1,6 +1,6 @@
 // Constantes extraídas de AdmHomeScreen
 
-import type { AdminService } from '../AdmHomeScreen';
+import type { AdminService } from './types';
 
 export const DEFAULT_FILTERS = {
   status: 'Todos os Status',
@@ -23,9 +23,11 @@ export const PERIODO_OPTIONS = [
   'Este Mes',
 ];
 
-export const statusLabelByCode: Record<AdminService['status'], string> = {
+export const statusLabelByCode: Record<string, string> = {
   aguardando: 'Aguardando',
   atribuido: 'Atribuido',
+  iniciado: 'Iniciado',
+  pausado: 'Pausado',
   concluido: 'Concluido',
   nao_realizado: 'Nao Realizado',
 };
@@ -38,9 +40,11 @@ export const statusFilterToCode: Record<string, AdminService['status'] | null> =
   'Nao Realizados': 'nao_realizado',
 };
 
-export const statusBadgeColorByCode: Record<AdminService['status'], string> = {
+export const statusBadgeColorByCode: Record<string, string> = {
   aguardando: '#f15a00',
   atribuido: '#0ea5a4',
+  iniciado: '#00a63f',
+  pausado: '#eab308',
   concluido: '#2563eb',
   nao_realizado: '#6b7280',
 };

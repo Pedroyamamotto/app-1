@@ -19,6 +19,7 @@ type ChecklistModalProps = {
     items: string[];
     obs?: string;
     receiptPhoto?: any;
+    reasonNoReceipt?: string;
   }) => void;
   chaveDePagamento?: string | null;
 };
@@ -46,6 +47,10 @@ const ChecklistModal = ({
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const [receiptPhoto, setReceiptPhoto] = useState<any>(null);
   const [obs, setObs] = useState('');
+  const [reasonModalVisible, setReasonModalVisible] = useState(false);
+  const [tempReason, setTempReason] = useState('');
+  const [selectedReasonModal, setSelectedReasonModal] = useState('');
+  const [reasonNoReceipt, setReasonNoReceipt] = useState('');
 
   const cobrancaObrigatoria =
     !chaveDePagamento || String(chaveDePagamento).trim() === '';
@@ -55,6 +60,9 @@ const ChecklistModal = ({
       setCheckedItems(new Set());
       setReceiptPhoto(null);
       setObs('');
+      setReasonNoReceipt('');
+      setTempReason('');
+      setSelectedReasonModal('');
       return;
     }
 
@@ -142,7 +150,7 @@ const ChecklistModal = ({
   const cobrancaMarcada = checkedItems.has(COBRANCA_ITEM);
   const checklistMinimo = checkedItems.size >= 4 || trimmedObs.length > 0;
 
-  const comprovanteObrigatorioOk = cobrancaObrigatoria ? !!receiptPhoto : true;
+  const comprovanteObrigatorioOk = cobrancaObrigatoria ? (!!receiptPhoto || !!reasonNoReceipt) : true;
 
   const canProceed = cobrancaObrigatoria
     ? checklistMinimo && cobrancaMarcada && comprovanteObrigatorioOk
@@ -236,7 +244,33 @@ const ChecklistModal = ({
                         </TouchableOpacity>
                       </View>
 
-                      {receiptPhoto ? (
+                      {cobrancaObrigatoria && !receiptPhoto && !reasonNoReceipt && (
+                        <TouchableOpacity
+                          style={styles.sendWithoutReceiptButton}
+                          onPress={() => {
+                            setTempReason('');
+                            setSelectedReasonModal('');
+                            setReasonModalVisible(true);
+                          }}
+                        >
+                          <Feather name="upload" size={18} color="#7A1A1A" />
+                          <Text style={styles.sendWithoutReceiptText}>
+                            Enviar sem comprovante
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {reasonNoReceipt ? (
+                        <View style={styles.receiptPreview}>
+                          <Feather name="file-text" size={16} color="#00a63f" />
+                          <Text style={styles.receiptFileName} numberOfLines={1}>
+                            Sem comprovante: {reasonNoReceipt}
+                          </Text>
+                          <TouchableOpacity onPress={() => setReasonNoReceipt('')}>
+                            <Feather name="x-circle" size={18} color="#ef4444" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : receiptPhoto ? (
                         <View style={styles.receiptPreview}>
                           <Feather name="file-text" size={16} color="#00a63f" />
 
@@ -294,6 +328,7 @@ const ChecklistModal = ({
                   items: Array.from(checkedItems),
                   obs: trimmedObs,
                   receiptPhoto,
+                  reasonNoReceipt,
                 })
               }
               disabled={!canProceed}
@@ -310,6 +345,87 @@ const ChecklistModal = ({
           </View>
         </View>
       </View>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={reasonModalVisible}
+        onRequestClose={() => setReasonModalVisible(false)}
+      >
+        <View style={styles.centeredView}>
+          <View style={styles.reasonModalView}>
+            <Text style={styles.modalTitle}>Motivo</Text>
+            <Text style={styles.modalSubtitle}>
+              Por que não irá anexar o comprovante de pagamento?
+            </Text>
+            <View style={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 15 }}>
+              {['Cliente não está em casa', 'Atraso', 'Outros'].map((reason) => (
+                <TouchableOpacity
+                  key={reason}
+                  style={[
+                    styles.reasonChip,
+                    selectedReasonModal === reason && styles.reasonChipSelected
+                  ]}
+                  onPress={() => setSelectedReasonModal(reason)}
+                >
+                  <Text style={[
+                    styles.reasonChipText,
+                    selectedReasonModal === reason && styles.reasonChipTextSelected
+                  ]}>
+                    {reason}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {selectedReasonModal === 'Outros' && (
+              <TextInput
+                style={styles.obsInput}
+                value={tempReason}
+                onChangeText={setTempReason}
+                placeholder="Digite o motivo..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                textAlignVertical="top"
+                autoFocus
+              />
+            )}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
+              <TouchableOpacity
+                style={[styles.button, styles.buttonSecondary, { flex: 1, marginBottom: 0 }]}
+                onPress={() => setReasonModalVisible(false)}
+              >
+                <Text style={styles.buttonSecondaryText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.button,
+                  styles.buttonPrimary,
+                  { flex: 1, marginBottom: 0 },
+                  (!selectedReasonModal || (selectedReasonModal === 'Outros' && !tempReason.trim())) && styles.buttonDisabled,
+                ]}
+                onPress={() => {
+                  let finalR = selectedReasonModal;
+                  if (selectedReasonModal === 'Outros') {
+                    finalR = tempReason.trim();
+                  }
+                  if (finalR) {
+                    setReasonNoReceipt(finalR);
+                    setReasonModalVisible(false);
+                    // Automaticamente marca o item de cobrança para poder continuar
+                    const newChecked = new Set(checkedItems);
+                    newChecked.add(COBRANCA_ITEM);
+                    setCheckedItems(newChecked);
+                  }
+                }}
+                disabled={!selectedReasonModal || (selectedReasonModal === 'Outros' && !tempReason.trim())}
+              >
+                <Text style={styles.buttonText}>Confirmar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 };
@@ -320,6 +436,19 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  reasonModalView: {
+    width: '90%',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    marginBottom: 'auto',
+    marginTop: 'auto',
   },
   modalView: {
     width: '100%',
@@ -418,6 +547,23 @@ const styles = StyleSheet.create({
   receiptActions: {
     flexDirection: 'row',
     gap: 10,
+  },
+  sendWithoutReceiptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f0f2f5',
+    padding: 10,
+    borderRadius: 6,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    marginTop: 10,
+  },
+  sendWithoutReceiptText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#7A1A1A',
   },
   receiptButton: {
     flex: 1,
@@ -536,6 +682,27 @@ const styles = StyleSheet.create({
     color: '#495057',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  reasonChip: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
+  },
+  reasonChipSelected: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#6366f1'
+  },
+  reasonChipText: {
+    color: '#475569',
+    fontSize: 14,
+    fontWeight: '500'
+  },
+  reasonChipTextSelected: {
+    color: '#4f46e5',
+    fontWeight: 'bold'
   },
 });
 

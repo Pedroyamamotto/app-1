@@ -57,7 +57,7 @@ export default function LoginScreen() {
 
         const userData = data?.user || data?.usuario || data?.data?.user || data?.data || data;
         const apiTypeUser = String(data?.typeUser || userData?.typeUser || '').toLowerCase();
-        const resolvedUserId = data?.userId || userData?.id || (isKnownAdminCredential ? ADMIN_USER_ID : null);
+        const resolvedUserId = data?.userId || userData?.id || userData?._id || data?._id || (isKnownAdminCredential ? ADMIN_USER_ID : null);
 
         const isAdminUserByFallback =
           isKnownAdminCredential ||
