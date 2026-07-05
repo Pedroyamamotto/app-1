@@ -7,9 +7,10 @@ type PauseModalProps = {
   visible: boolean;
   onClose: () => void;
   onConfirm: (reason: string, dataAgendada: string, turnoAgendado: string) => void;
+  mode?: 'pausar' | 'reagendar';
 };
 
-export default function PauseModal({ visible, onClose, onConfirm }: PauseModalProps) {
+export default function PauseModal({ visible, onClose, onConfirm, mode = 'pausar' }: PauseModalProps) {
   const [expanded, setExpanded] = useState<'remarcar' | null>(null);
   const [date, setDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -17,6 +18,12 @@ export default function PauseModal({ visible, onClose, onConfirm }: PauseModalPr
   const [showTurnoPicker, setShowTurnoPicker] = useState(false);
 
   const turnos = ['Manhã', 'Tarde', 'Noite'];
+
+  React.useEffect(() => {
+    if (visible) {
+      setExpanded(mode === 'reagendar' ? 'remarcar' : null);
+    }
+  }, [visible, mode]);
 
   const handlePausaRapida = () => {
     onConfirm('Pausa rápida', '', '');
@@ -37,16 +44,22 @@ export default function PauseModal({ visible, onClose, onConfirm }: PauseModalPr
       <View style={styles.overlay}>
         <View style={styles.content}>
           <View style={styles.headerRow}>
-            <Text style={styles.title}>Pausar serviço</Text>
+            <Text style={styles.title}>
+              {mode === 'reagendar' ? 'Reagendar serviço' : 'Pausar serviço'}
+            </Text>
             <TouchableOpacity onPress={handleClose} style={styles.closeIcon}>
               <Feather name="x" size={24} color="#64748b" />
             </TouchableOpacity>
           </View>
-          <Text style={styles.subtitle}>Escolha o motivo da pausa:</Text>
+          <Text style={styles.subtitle}>
+            {mode === 'reagendar' 
+              ? 'Defina a nova data e turno para a realização do serviço:' 
+              : 'Escolha o motivo da pausa:'}
+          </Text>
 
           <ScrollView style={styles.optionsContainer} showsVerticalScrollIndicator={false}>
             {/* Pausa Rápida */}
-            {!expanded && (
+            {mode !== 'reagendar' && !expanded && (
               <TouchableOpacity style={styles.cardYellow} onPress={handlePausaRapida}>
                 <View style={styles.iconCircleYellow}>
                   <Feather name="clock" size={22} color="#b45309" />
@@ -60,24 +73,26 @@ export default function PauseModal({ visible, onClose, onConfirm }: PauseModalPr
             )}
 
             {/* Remarcar Atendimento */}
-            <TouchableOpacity 
-              style={[styles.cardBlue, expanded === 'remarcar' && { borderColor: '#3b82f6' }]} 
-              onPress={() => setExpanded('remarcar')}
-            >
-              <View style={styles.iconCircleBlue}>
-                <Feather name="calendar" size={22} color="#1d4ed8" />
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Remarcar o atendimento</Text>
-                <Text style={styles.cardSub}>Reagende o atendimento para outra data e horário.</Text>
-              </View>
-              {!expanded && <Feather name="chevron-right" size={20} color="#1d4ed8" />}
-            </TouchableOpacity>
+            {mode !== 'reagendar' && (
+              <TouchableOpacity 
+                style={[styles.cardBlue, expanded === 'remarcar' && { borderColor: '#3b82f6' }]} 
+                onPress={() => setExpanded('remarcar')}
+              >
+                <View style={styles.iconCircleBlue}>
+                  <Feather name="calendar" size={22} color="#1d4ed8" />
+                </View>
+                <View style={styles.cardTextContainer}>
+                  <Text style={styles.cardTitle}>Remarcar o atendimento</Text>
+                  <Text style={styles.cardSub}>Reagende o atendimento para outra data e horário.</Text>
+                </View>
+                {!expanded && <Feather name="chevron-right" size={20} color="#1d4ed8" />}
+              </TouchableOpacity>
+            )}
 
-            {/* Formulário de remarcação (expandido) */}
-            {expanded === 'remarcar' && (
-              <View style={styles.datePickerContainer}>
-                <View style={styles.inputGroup}>
+            {/* Formulário de remarcação (expandido ou no modo reagendar) */}
+            {(expanded === 'remarcar' || mode === 'reagendar') && (
+              <View style={styles.formContainer}>
+                <View style={styles.inputGroupFull}>
                   <Text style={styles.inputLabel}>Nova Data</Text>
                   <TouchableOpacity style={styles.dateInput} onPress={() => setShowDatePicker(true)}>
                     <Text style={styles.dateText}>{date.toLocaleDateString('pt-BR')}</Text>
@@ -85,29 +100,26 @@ export default function PauseModal({ visible, onClose, onConfirm }: PauseModalPr
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.inputGroup}>
+                <View style={styles.inputGroupFull}>
                   <Text style={styles.inputLabel}>Novo Turno</Text>
-                  <TouchableOpacity style={styles.dateInput} onPress={() => setShowTurnoPicker(!showTurnoPicker)}>
-                    <Text style={styles.dateText}>{turno}</Text>
-                    <Feather name="chevron-down" size={18} color="#64748b" />
-                  </TouchableOpacity>
-                  
-                  {showTurnoPicker && (
-                    <View style={styles.turnoDropdown}>
-                      {turnos.map((t) => (
-                        <TouchableOpacity 
-                          key={t} 
-                          style={styles.turnoOption}
-                          onPress={() => {
-                            setTurno(t);
-                            setShowTurnoPicker(false);
-                          }}
-                        >
-                          <Text style={[styles.turnoText, turno === t && styles.turnoSelected]}>{t}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
+                  <View style={styles.turnoChipsContainer}>
+                    {turnos.map((t) => (
+                      <TouchableOpacity
+                        key={t}
+                        style={[
+                          styles.turnoChip,
+                          turno === t && styles.turnoChipActive
+                        ]}
+                        onPress={() => setTurno(t)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[
+                          styles.turnoChipText,
+                          turno === t && styles.turnoChipTextActive
+                        ]}>{t}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </View>
               </View>
             )}
@@ -117,7 +129,7 @@ export default function PauseModal({ visible, onClose, onConfirm }: PauseModalPr
                 value={date}
                 mode="date"
                 display="default"
-                onChange={(event, selectedDate) => {
+                onValueChange={(event, selectedDate) => {
                   setShowDatePicker(Platform.OS === 'ios');
                   if (selectedDate) setDate(selectedDate);
                 }}
@@ -126,7 +138,7 @@ export default function PauseModal({ visible, onClose, onConfirm }: PauseModalPr
           </ScrollView>
 
           <View style={styles.actions}>
-            {expanded === 'remarcar' ? (
+            {(expanded === 'remarcar' || mode === 'reagendar') ? (
               <TouchableOpacity style={styles.confirmButtonPrimary} onPress={handleConfirmRemarcar}>
                 <Text style={styles.confirmButtonTextPrimary}>Confirmar Remarcação</Text>
               </TouchableOpacity>
@@ -240,14 +252,14 @@ const styles = StyleSheet.create({
   },
 
   // Date Picker
-  datePickerContainer: {
-    flexDirection: 'row',
-    gap: 12,
+  formContainer: {
+    gap: 16,
     marginTop: 8,
     marginBottom: 10,
+    width: '100%',
   },
-  inputGroup: {
-    flex: 1,
+  inputGroupFull: {
+    width: '100%',
   },
   inputLabel: {
     fontSize: 13,
@@ -270,30 +282,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#334155',
   },
-  turnoDropdown: {
-    position: 'absolute',
-    top: 70,
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
+  turnoChipsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+    width: '100%',
+  },
+  turnoChip: {
+    flex: 1,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 10,
-    zIndex: 10,
-    elevation: 5,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  turnoOption: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+  turnoChipActive: {
+    borderColor: '#1d4ed8',
+    backgroundColor: '#eff6ff',
   },
-  turnoText: {
-    fontSize: 15,
-    color: '#334155',
+  turnoChipText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '600',
   },
-  turnoSelected: {
-    fontWeight: '700',
+  turnoChipTextActive: {
     color: '#1d4ed8',
+    fontWeight: '700',
   },
 
   // Actions

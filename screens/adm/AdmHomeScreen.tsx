@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import ImageZoomModal from '../../components/ImageZoomModal';
+import ImageZoomModal, { PhotoGalleryModal } from '../../components/ImageZoomModal';
 import PhotoUploadModal from '../../components/PhotoUploadModal';
 import { assignAdminService, createAdminServiceRequest, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, fetchAdminServiceFinalizacao, fetchAdminClientesFromApi, fetchAdminGerentesFromApi, type AdminDashboardData, type AdminTecnicoUser, type AdminCliente, type AdminGerenteUser } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
@@ -37,16 +37,24 @@ import {
   toCalendarDate,
 } from './components/utils';
 
-const normalizeSignatureUri = (uri: string | null | undefined) => {
+const normalizeImageUri = (uri: any): string | null => {
   if (!uri) return null;
-  const trimmed = uri.trim();
+  const rawStr = typeof uri === 'string' ? uri : (uri.url || uri.uri || uri.path || '');
+  if (!rawStr) return null;
+  const trimmed = rawStr.trim().replace(/\\/g, '/');
+  // Already absolute URL or file path
   if (trimmed.startsWith('http') || trimmed.startsWith('file:') || trimmed.startsWith('data:')) {
     return trimmed;
   }
-  if (trimmed.length > 50) {
+  // Raw base64 signature detection
+  if (trimmed.length > 100) {
     return `data:image/png;base64,${trimmed}`;
   }
-  return trimmed;
+  // Relative API path
+  if (trimmed.startsWith('/')) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+  return `${API_BASE_URL}/${trimmed}`;
 };
 
 import { gerarRelatorioPDF } from '../../utils/report';
@@ -115,6 +123,9 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const [reagendarVisible, setReagendarVisible] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isChecklistDetailVisible, setChecklistDetailVisible] = useState(false);
+  const [galleryPhotos, setGalleryPhotos] = useState<string[]>([]);
+  const [galleryTitle, setGalleryTitle] = useState<string>('Fotos');
+  const [isGalleryVisible, setGalleryVisible] = useState(false);
   const [isReagendarTecnicoOpen, setIsReagendarTecnicoOpen] = useState(false);
   const [showReagendarCal, setShowReagendarCal] = useState(false);
   const [showReagendarTime, setShowReagendarTime] = useState(false);
@@ -143,32 +154,66 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
   const uniqueServicePhotos = useMemo(() => {
     if (!selectedService) return [];
     const photos: string[] = [];
-    // Campo principal retornado pelo backend
     if (selectedService.fotos_urls && Array.isArray(selectedService.fotos_urls)) {
-      photos.push(...selectedService.fotos_urls);
+      selectedService.fotos_urls.forEach((u: string) => {
+        const norm = normalizeImageUri(u);
+        if (norm) photos.push(norm);
+      });
     }
-    if (selectedService.fotoUri && !photos.includes(selectedService.fotoUri)) {
-      photos.push(selectedService.fotoUri);
+    if (selectedService.fotoUri) {
+      const norm = normalizeImageUri(selectedService.fotoUri);
+      if (norm && !photos.includes(norm)) photos.push(norm);
     }
-    if (selectedService.foto_url && !photos.includes(selectedService.foto_url)) {
-      photos.push(selectedService.foto_url);
+    if (selectedService.foto_url) {
+      const norm = normalizeImageUri(selectedService.foto_url as string);
+      if (norm && !photos.includes(norm)) photos.push(norm);
     }
     if (selectedService.fotosServicoUris && Array.isArray(selectedService.fotosServicoUris)) {
-      photos.push(...selectedService.fotosServicoUris.filter((u: string) => !photos.includes(u)));
+      selectedService.fotosServicoUris.forEach((u: string) => {
+        const norm = normalizeImageUri(u);
+        if (norm && !photos.includes(norm)) photos.push(norm);
+      });
     }
     if (selectedService.fotos_servico_uris && Array.isArray(selectedService.fotos_servico_uris)) {
-      photos.push(...selectedService.fotos_servico_uris.filter((u: string) => !photos.includes(u)));
+      selectedService.fotos_servico_uris.forEach((u: string) => {
+        const norm = normalizeImageUri(u);
+        if (norm && !photos.includes(norm)) photos.push(norm);
+      });
     }
     return Array.from(new Set(photos)).filter(Boolean);
   }, [selectedService]);
 
   const uniqueContextPhotos = useMemo(() => {
     if (!selectedService) return [];
-    const photos = [
+    const rawPhotos = [
       ...(selectedService.fotosContextoUris || []),
       ...(selectedService.fotos_contexto_uris || [])
     ].filter(Boolean);
+    const photos: string[] = [];
+    rawPhotos.forEach((u: string) => {
+      const norm = normalizeImageUri(u);
+      if (norm && !photos.includes(norm)) photos.push(norm);
+    });
     return Array.from(new Set(photos));
+  }, [selectedService]);
+
+  const adminReceiptPhotosUrls = useMemo(() => {
+    if (!selectedService) return [];
+    const urls: string[] = [];
+    if (selectedService.comprovantes_pagamento && Array.isArray(selectedService.comprovantes_pagamento)) {
+      selectedService.comprovantes_pagamento.forEach((item: any) => {
+        const u = normalizeImageUri(item.url || item.uri);
+        if (u) urls.push(u);
+      });
+    }
+    if (selectedService.comprovante_pagamento?.url) {
+      const u = normalizeImageUri(selectedService.comprovante_pagamento.url);
+      if (u && !urls.includes(u)) urls.push(u);
+    }
+    if (selectedService.comprovanteUri && !urls.includes(selectedService.comprovanteUri)) {
+      urls.push(selectedService.comprovanteUri);
+    }
+    return urls.filter(Boolean);
   }, [selectedService]);
 
   const handleGerarRelatorio = async () => {
@@ -2555,18 +2600,9 @@ const openDetailModal = async (item: AdminService) => {
                   activeOpacity={uniqueServicePhotos.length > 0 ? 0.7 : 1}
                   onPress={() => {
                     if (uniqueServicePhotos.length > 0) {
-                      if (uniqueServicePhotos.length === 1) {
-                        setZoomedImage(uniqueServicePhotos[0]);
-                      } else {
-                        Alert.alert(
-                          'Fotos do Serviço',
-                          `Deseja visualizar qual das ${uniqueServicePhotos.length} fotos do serviço?`,
-                          uniqueServicePhotos.map((uri: string, idx: number) => ({
-                            text: `Visualizar Foto ${idx + 1}`,
-                            onPress: () => setZoomedImage(uri)
-                          })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
-                        );
-                      }
+                      setGalleryPhotos(uniqueServicePhotos);
+                      setGalleryTitle('Fotos do Serviço');
+                      setGalleryVisible(true);
                     }
                   }}
                 >
@@ -2594,18 +2630,9 @@ const openDetailModal = async (item: AdminService) => {
                   activeOpacity={uniqueContextPhotos.length > 0 ? 0.7 : 1}
                   onPress={() => {
                     if (uniqueContextPhotos.length > 0) {
-                      if (uniqueContextPhotos.length === 1) {
-                        setZoomedImage(uniqueContextPhotos[0]);
-                      } else {
-                        Alert.alert(
-                          'Fotos de Contexto',
-                          `Deseja visualizar qual das ${uniqueContextPhotos.length} fotos de contexto?`,
-                          uniqueContextPhotos.map((uri: string, idx: number) => ({
-                            text: `Visualizar Foto ${idx + 1}`,
-                            onPress: () => setZoomedImage(uri)
-                          })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
-                        );
-                      }
+                      setGalleryPhotos(uniqueContextPhotos);
+                      setGalleryTitle('Fotos de Contexto');
+                      setGalleryVisible(true);
                     }
                   }}
                 >
@@ -2613,16 +2640,16 @@ const openDetailModal = async (item: AdminService) => {
                     <View style={[styles.circleIconBg, { backgroundColor: '#e0f2fe' }]}>
                       <Feather name="image" size={16} color="#0284c7" />
                     </View>
-                    <View style={[styles.badgeStyle, { backgroundColor: selectedService.fotosContextoUris?.length > 0 ? '#dcfce7' : '#fee2e2' }]}>
-                      <Text style={[styles.badgeText, { color: selectedService.fotosContextoUris?.length > 0 ? '#15803d' : '#ef4444' }]}>
-                        {selectedService.fotosContextoUris?.length > 0 ? `${selectedService.fotosContextoUris.length} Enviada(s)` : 'Não enviadas'}
+                    <View style={[styles.badgeStyle, { backgroundColor: uniqueContextPhotos.length > 0 ? '#dcfce7' : '#fee2e2' }]}>
+                      <Text style={[styles.badgeText, { color: uniqueContextPhotos.length > 0 ? '#15803d' : '#ef4444' }]}>
+                        {uniqueContextPhotos.length > 0 ? `${uniqueContextPhotos.length} Enviada(s)` : 'Não enviadas'}
                       </Text>
                     </View>
                   </View>
                   <View style={{ marginTop: 12 }}>
                     <Text style={styles.gridCardTitle}>Fotos de Contexto</Text>
                     <Text style={styles.gridCardSub}>
-                      {selectedService.fotosContextoUris?.length > 0 ? 'Clique para visualizar as fotos de contexto.' : 'Nenhuma foto de contexto enviada.'}
+                      {uniqueContextPhotos.length > 0 ? 'Clique para visualizar as fotos de contexto.' : 'Nenhuma foto de contexto enviada.'}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -2630,10 +2657,12 @@ const openDetailModal = async (item: AdminService) => {
                 {/* Card 4: Comprovante de Pagamento */}
                 <TouchableOpacity 
                   style={styles.gridCard}
-                  activeOpacity={(selectedService.comprovanteUri || selectedService.motivoSemComprovante) ? 0.7 : 1}
+                  activeOpacity={(adminReceiptPhotosUrls.length > 0 || selectedService.motivoSemComprovante) ? 0.7 : 1}
                   onPress={() => {
-                    if (selectedService.comprovanteUri) {
-                      setZoomedImage(selectedService.comprovanteUri);
+                    if (adminReceiptPhotosUrls.length > 0) {
+                      setGalleryPhotos(adminReceiptPhotosUrls);
+                      setGalleryTitle('Comprovante de Pagamento');
+                      setGalleryVisible(true);
                     } else if (selectedService.motivoSemComprovante) {
                       Alert.alert('Sem Comprovante', `Motivo informado pelo técnico:\n\n"${selectedService.motivoSemComprovante}"`);
                     }
@@ -2646,7 +2675,7 @@ const openDetailModal = async (item: AdminService) => {
                     <View style={[
                       styles.badgeStyle, 
                       { 
-                        backgroundColor: selectedService.comprovanteUri 
+                        backgroundColor: adminReceiptPhotosUrls.length > 0 
                           ? '#dcfce7' 
                           : selectedService.motivoSemComprovante 
                             ? '#fef3c7' 
@@ -2656,21 +2685,21 @@ const openDetailModal = async (item: AdminService) => {
                       <Text style={[
                         styles.badgeText, 
                         { 
-                          color: selectedService.comprovanteUri 
+                          color: adminReceiptPhotosUrls.length > 0 
                             ? '#15803d' 
                             : selectedService.motivoSemComprovante 
                               ? '#d97706' 
                               : '#ef4444' 
                         }
                       ]}>
-                        {selectedService.comprovanteUri ? 'Enviado' : (selectedService.motivoSemComprovante ? 'Sem Comprovante' : 'Não enviado')}
+                        {adminReceiptPhotosUrls.length > 0 ? 'Enviado' : (selectedService.motivoSemComprovante ? 'Sem Comprovante' : 'Não enviado')}
                       </Text>
                     </View>
                   </View>
                   <View style={{ marginTop: 12 }}>
                     <Text style={styles.gridCardTitle}>Comprovante de Pagamento</Text>
                     <Text style={styles.gridCardSub} numberOfLines={2}>
-                      {selectedService.comprovanteUri 
+                      {adminReceiptPhotosUrls.length > 0 
                         ? 'Comprovante de pagamento enviado.' 
                         : selectedService.motivoSemComprovante 
                           ? `Motivo: "${selectedService.motivoSemComprovante}"`
@@ -2832,8 +2861,15 @@ const openDetailModal = async (item: AdminService) => {
 
         <ImageZoomModal
           visible={!!zoomedImage}
-          imageUri={normalizeSignatureUri(zoomedImage)}
+          imageUri={normalizeImageUri(zoomedImage)}
           onClose={() => setZoomedImage(null)}
+        />
+
+        <PhotoGalleryModal
+          visible={isGalleryVisible}
+          photos={galleryPhotos}
+          title={galleryTitle}
+          onClose={() => setGalleryVisible(false)}
         />
       </View>
     </SafeAreaView>

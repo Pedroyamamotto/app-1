@@ -213,11 +213,18 @@ const HomeScreen = () => {
         };
       } else {
         // Fallback para cálculo local se não encontrar no relatório
-        const concluido = tecnicoServices.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status))).length;
+        const concludedServices = tecnicoServices.filter((s) => ['concluido', 'concluida'].includes(normalizeStatus(s?.status)));
+        const concluido = concludedServices.length;
         const naoConcluida = tecnicoServices.filter((s) => ['nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
-        // Considera "Em Espera" tudo que não está concluído ou cancelado/não realizado
         const emEspera = tecnicoServices.filter((s) => !['concluido', 'concluida', 'nao_realizado', 'não_realizado', 'cancelado'].includes(normalizeStatus(s?.status))).length;
-        nextSummary = { concluido, naoConcluida, emEspera, tempoMedioMs: 0 };
+        
+        let totalTempoMs = 0;
+        concludedServices.forEach(s => {
+          totalTempoMs += Number(s.tempo_trabalhado_ms || s.tempoTrabalhadoMs || 0);
+        });
+        const tempoMedioMs = concluido > 0 ? Math.round(totalTempoMs / concluido) : 0;
+        
+        nextSummary = { concluido, naoConcluida, emEspera, tempoMedioMs };
       }
 
       if (hasLoadedOnce && previousServiceIdsRef.current.size > 0) {

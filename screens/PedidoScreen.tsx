@@ -62,6 +62,7 @@ type ServiceData = {
   iniciado_em?: string | null;
   checklist?: string[];
   has_comprovante?: boolean;
+  comprovantes_pagamento?: any[];
   comprovante_pagamento?: any;
   assinatura_url?: string;
   assinatura?: string;
@@ -85,22 +86,24 @@ type ChecklistCompletePayload = {
   receiptPhoto?: UploadedPhoto | null;
 };
 
-const normalizeImageUri = (uri: string | null | undefined): string | null => {
+const normalizeImageUri = (uri: any): string | null => {
   if (!uri) return null;
-  const trimmed = uri.trim();
+  const rawStr = typeof uri === 'string' ? uri : (uri.url || uri.uri || uri.path || '');
+  if (!rawStr) return null;
+  const trimmed = rawStr.trim().replace(/\\/g, '/');
   // Already absolute URL or file path
   if (trimmed.startsWith('http') || trimmed.startsWith('file:') || trimmed.startsWith('data:')) {
     return trimmed;
   }
-  // Relative API path like /api/uploads/services/...
-  if (trimmed.startsWith('/api/') || trimmed.startsWith('/uploads/')) {
-    return `${API_BASE_URL}${trimmed}`;
-  }
-  // Likely base64 signature
-  if (trimmed.length > 50) {
+  // Raw base64 signature detection
+  if (trimmed.length > 100) {
     return `data:image/png;base64,${trimmed}`;
   }
-  return trimmed;
+  // Relative API path
+  if (trimmed.startsWith('/')) {
+    return `${API_BASE_URL}${trimmed}`;
+  }
+  return `${API_BASE_URL}/${trimmed}`;
 };
 
 export default function PedidoScreen() {
@@ -122,8 +125,12 @@ export default function PedidoScreen() {
   const [isSignatureVisible, setSignatureVisible] = useState(false);
   const [isNotCompletedModalVisible, setNotCompletedModalVisible] = useState(false);
   const [isPauseModalVisible, setPauseModalVisible] = useState(false);
+  const [pauseModalMode, setPauseModalMode] = useState<'pausar' | 'reagendar'>('pausar');
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isChecklistDetailVisible, setChecklistDetailVisible] = useState(false);
+  const [galleryPhotos, setGalleryPhotos] = useState<string[]>([]);
+  const [galleryTitle, setGalleryTitle] = useState<string>('Fotos');
+  const [isGalleryVisible, setGalleryVisible] = useState(false);
   const [completionData, setCompletionData] = useState<{ 
     checklist: string[]; 
     checklistObs: string; 
@@ -306,16 +313,36 @@ export default function PedidoScreen() {
     );
   }, [service]);
 
-  const receiptPhotoUrl = useMemo(() => {
+  const receiptPhotosUrls = useMemo(() => {
+    const urls: string[] = [];
     if (isFinalized) {
-      const apiKey = getAdminApiKey();
-      return {
-        uri: encodeURI(`${API_BASE_URL}/api/admin/services/comprovante/${serviceId}`),
-        headers: apiKey ? { 'x-admin-key': apiKey } : { 'x-user-type': 'admin' }
-      };
+      if (service?.comprovantes_pagamento && Array.isArray(service.comprovantes_pagamento)) {
+        service.comprovantes_pagamento.forEach((item: any) => {
+          const u = normalizeImageUri(item.url || item.uri);
+          if (u) urls.push(u);
+        });
+      }
+      if (service?.comprovante_pagamento?.url) {
+        const u = normalizeImageUri(service.comprovante_pagamento.url);
+        if (u && !urls.includes(u)) urls.push(u);
+      }
+      // Fallback para rota admin legada
+      if (urls.length === 0 && (service?.has_comprovante || service?.comprovante_pagamento)) {
+        const apiKey = getAdminApiKey();
+        urls.push(encodeURI(`${API_BASE_URL}/api/admin/services/comprovante/${serviceId}`));
+      }
+    } else {
+      if (completionData.receiptPhotos && completionData.receiptPhotos.length > 0) {
+        completionData.receiptPhotos.forEach((p) => {
+          if (p?.uri && !urls.includes(p.uri)) urls.push(p.uri);
+        });
+      }
+      if (completionData.receiptPhoto?.uri && !urls.includes(completionData.receiptPhoto.uri)) {
+        urls.push(completionData.receiptPhoto.uri);
+      }
     }
-    return completionData.receiptPhoto?.uri ? { uri: completionData.receiptPhoto.uri } : null;
-  }, [isFinalized, serviceId, completionData.receiptPhoto]);
+    return urls.filter(Boolean);
+  }, [isFinalized, service, serviceId, completionData.receiptPhotos, completionData.receiptPhoto]);
 
   const address = useMemo(() => {
     if (!client) return 'Endereço não informado';
@@ -334,22 +361,38 @@ export default function PedidoScreen() {
 
   const servicePhotos: string[] = useMemo(() => {
     const photos: string[] = [];
-    // Campo principal do backend
     if (service?.fotos_urls && Array.isArray(service.fotos_urls)) {
-      photos.push(...service.fotos_urls);
+      service.fotos_urls.forEach((u: any) => {
+        const urlStr = typeof u === 'string' ? u : (u?.url || u?.uri || u?.path || '');
+        const norm = normalizeImageUri(urlStr);
+        if (norm) photos.push(norm);
+      });
     }
     if (service?.fotos_servico_uris && Array.isArray(service.fotos_servico_uris)) {
-      photos.push(...service.fotos_servico_uris.filter((u: string) => !photos.includes(u)));
+      service.fotos_servico_uris.forEach((u: any) => {
+        const urlStr = typeof u === 'string' ? u : (u?.url || u?.uri || u?.path || '');
+        const norm = normalizeImageUri(urlStr);
+        if (norm && !photos.includes(norm)) photos.push(norm);
+      });
     }
     if (finalizacao?.fotosServico && Array.isArray(finalizacao.fotosServico)) {
-      photos.push(...(finalizacao.fotosServico as string[]).filter((u: string) => !photos.includes(u)));
+      finalizacao.fotosServico.forEach((u: any) => {
+        const urlStr = typeof u === 'string' ? u : (u?.url || u?.uri || u?.path || '');
+        const norm = normalizeImageUri(urlStr);
+        if (norm && !photos.includes(norm)) photos.push(norm);
+      });
     }
     if (finalizacao?.fotos && Array.isArray(finalizacao.fotos)) {
-      photos.push(...(finalizacao.fotos as string[]).filter((u: string) => !photos.includes(u)));
+      finalizacao.fotos.forEach((u: any) => {
+        const urlStr = typeof u === 'string' ? u : (u?.url || u?.uri || u?.path || '');
+        const norm = normalizeImageUri(urlStr);
+        if (norm && !photos.includes(norm)) photos.push(norm);
+      });
     }
     const singlePhoto = service?.fotoUri || (service?.foto_url as string) || (completionPhotoUrl as string);
-    if (singlePhoto && !photos.includes(singlePhoto)) {
-      photos.push(singlePhoto);
+    if (singlePhoto) {
+      const norm = normalizeImageUri(singlePhoto);
+      if (norm && !photos.includes(norm)) photos.push(norm);
     }
     return photos.filter(Boolean);
   }, [service, finalizacao, completionPhotoUrl]);
@@ -357,13 +400,25 @@ export default function PedidoScreen() {
   const finalizedContextPhotoUrls: string[] = useMemo(() => {
     const urls: string[] = [];
     if (service?.fotosContextoUris && Array.isArray(service.fotosContextoUris)) {
-      urls.push(...service.fotosContextoUris);
+      service.fotosContextoUris.forEach((u: any) => {
+        const urlStr = typeof u === 'string' ? u : (u?.url || u?.uri || u?.path || '');
+        const norm = normalizeImageUri(urlStr);
+        if (norm) urls.push(norm);
+      });
     }
     if (finalizacao?.fotosContexto && Array.isArray(finalizacao.fotosContexto)) {
-      urls.push(...finalizacao.fotosContexto);
+      finalizacao.fotosContexto.forEach((u: any) => {
+        const urlStr = typeof u === 'string' ? u : (u?.url || u?.uri || u?.path || '');
+        const norm = normalizeImageUri(urlStr);
+        if (norm && !urls.includes(norm)) urls.push(norm);
+      });
     }
     if (service?.fotos_contexto_uris && Array.isArray(service.fotos_contexto_uris)) {
-      urls.push(...service.fotos_contexto_uris);
+      service.fotos_contexto_uris.forEach((u: any) => {
+        const urlStr = typeof u === 'string' ? u : (u?.url || u?.uri || u?.path || '');
+        const norm = normalizeImageUri(urlStr);
+        if (norm && !urls.includes(norm)) urls.push(norm);
+      });
     }
     return urls.filter(Boolean);
   }, [service, finalizacao]);
@@ -672,7 +727,7 @@ export default function PedidoScreen() {
     }
   };
 
-  const handlePausarServico = async () => {
+  const handlePausarServico = async (motivo: string, dataAgendada?: string, turnoAgendado?: string) => {
     if (isSending) return;
     setIsSending(true);
     setPauseModalVisible(false);
@@ -683,19 +738,29 @@ export default function PedidoScreen() {
         body: JSON.stringify({
           tecnico_id: tecnicoId,
           tecnico: tecnicoNome,
+          motivo,
+          data_agendada: dataAgendada || null,
+          turno_agendado: turnoAgendado || null,
         }),
       });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData?.message || 'Falha ao pausar o serviço');
+        throw new Error(errData?.message || 'Falha ao processar a ação do serviço');
       }
 
       await carregarServico(serviceId as string);
-      Alert.alert('Sucesso', 'Serviço pausado.');
+      
+      if (motivo === 'Remarcar o atendimento') {
+        Alert.alert('Sucesso', 'Serviço reagendado com sucesso.', [
+          { text: 'OK', onPress: () => navigation.goBack() }
+        ]);
+      } else {
+        Alert.alert('Sucesso', 'Serviço pausado.');
+      }
     } catch (error: any) {
-      console.warn('Erro ao pausar serviço:', error);
-      Alert.alert('Erro', error?.message || 'Não foi possível pausar o serviço.');
+      console.warn('Erro ao processar ação:', error);
+      Alert.alert('Erro', error?.message || 'Não foi possível processar a ação.');
     } finally {
       setIsSending(false);
     }
@@ -789,12 +854,7 @@ export default function PedidoScreen() {
     const hasChecklist = normalizedChecklist.length > 0;
     const hasPhotoServico = servicePhotos.length > 0;
 
-    const hasReceiptPhoto = !!(
-      service?.has_comprovante ||
-      service?.comprovante_pagamento ||
-      completionData.receiptPhoto ||
-      finalizacao?.comprovanteUri
-    );
+    const hasReceiptPhoto = receiptPhotosUrls.length > 0;
     const motivoSemComprovante = service?.motivo_sem_comprovante || service?.motivoSemComprovante || finalizacao?.motivoSemComprovante || completionData.reasonNoReceipt;
     
     const signatureUri = service?.assinatura_url || service?.assinaturaUri || finalizacao?.assinatura || service?.assinatura;
@@ -832,7 +892,7 @@ export default function PedidoScreen() {
         checklist: normalizedChecklist,
         fotosServico: servicePhotos,
         fotosContexto: finalizedContextPhotoUrls,
-        comprovanteUri: receiptPhotoUrl ? (typeof receiptPhotoUrl === 'string' ? receiptPhotoUrl : receiptPhotoUrl.uri) : undefined,
+        comprovanteUri: receiptPhotosUrls[0] ? (typeof receiptPhotosUrls[0] === 'string' ? receiptPhotosUrls[0] : (receiptPhotosUrls[0] as any).uri) : undefined,
         assinaturaUri: signatureUri || undefined,
       };
       await gerarRelatorioPDF(data);
@@ -1026,18 +1086,9 @@ export default function PedidoScreen() {
                 activeOpacity={hasPhotoServico ? 0.7 : 1}
                 onPress={() => {
                   if (hasPhotoServico) {
-                    if (servicePhotos.length === 1) {
-                      setZoomedImage(servicePhotos[0]);
-                    } else {
-                      Alert.alert(
-                        'Fotos do Serviço',
-                        `Deseja visualizar qual das ${servicePhotos.length} fotos do serviço?`,
-                        servicePhotos.map((uri, idx) => ({
-                          text: `Visualizar Foto ${idx + 1}`,
-                          onPress: () => setZoomedImage(uri)
-                        })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
-                      );
-                    }
+                    setGalleryPhotos(servicePhotos);
+                    setGalleryTitle('Fotos do Serviço');
+                    setGalleryVisible(true);
                   }
                 }}
               >
@@ -1063,18 +1114,9 @@ export default function PedidoScreen() {
                 activeOpacity={finalizedContextPhotoUrls.length > 0 ? 0.7 : 1}
                 onPress={() => {
                   if (finalizedContextPhotoUrls.length > 0) {
-                    if (finalizedContextPhotoUrls.length === 1) {
-                      setZoomedImage(finalizedContextPhotoUrls[0]);
-                    } else {
-                      Alert.alert(
-                        'Fotos de Contexto',
-                        `Deseja visualizar qual das ${finalizedContextPhotoUrls.length} fotos de contexto?`,
-                        finalizedContextPhotoUrls.map((uri, idx) => ({
-                          text: `Visualizar Foto ${idx + 1}`,
-                          onPress: () => setZoomedImage(uri)
-                        })).slice(0, 5).concat([{ text: 'Cancelar', style: 'cancel' } as any])
-                      );
-                    }
+                    setGalleryPhotos(finalizedContextPhotoUrls);
+                    setGalleryTitle('Fotos de Contexto');
+                    setGalleryVisible(true);
                   }
                 }}
               >
@@ -1101,8 +1143,10 @@ export default function PedidoScreen() {
                 style={styles.gridCard}
                 activeOpacity={(hasReceiptPhoto || motivoSemComprovante) ? 0.7 : 1}
                 onPress={() => {
-                  if (hasReceiptPhoto && receiptPhotoUrl) {
-                    setZoomedImage(typeof receiptPhotoUrl === 'string' ? receiptPhotoUrl : receiptPhotoUrl.uri);
+                  if (hasReceiptPhoto) {
+                    setGalleryPhotos(receiptPhotosUrls);
+                    setGalleryTitle('Comprovante de Pagamento');
+                    setGalleryVisible(true);
                   } else if (motivoSemComprovante) {
                     Alert.alert('Sem Comprovante', `Motivo informado pelo técnico:\n\n"${motivoSemComprovante}"`);
                   }
@@ -1269,6 +1313,13 @@ export default function PedidoScreen() {
           imageUri={normalizeImageUri(zoomedImage)}
           onClose={() => setZoomedImage(null)}
         />
+
+        <PhotoGalleryModal
+          visible={isGalleryVisible}
+          photos={galleryPhotos}
+          title={galleryTitle}
+          onClose={() => setGalleryVisible(false)}
+        />
       </SafeAreaView>
     );
   };
@@ -1418,17 +1469,30 @@ export default function PedidoScreen() {
               )}
             </View>
 
-            {isFinalized || completionData.receiptPhoto ? (
+            {isFinalized || completionData.receiptPhotos.length > 0 || completionData.receiptPhoto ? (
               <>
                 <Text style={styles.sectionTitle}>Comprovante de Pagamento:</Text>
                 <View style={styles.contextPhotosBlock}>
-                  {receiptPhotoUrl ? (
-                    <StandardImage
-                      source={receiptPhotoUrl}
-                      onPress={() => setZoomedImage(typeof receiptPhotoUrl === 'string' ? receiptPhotoUrl : receiptPhotoUrl.uri)}
-                      containerStyle={styles.contextPhotoContainer}
-                      imageStyle={styles.contextPhoto}
-                    />
+                  {receiptPhotosUrls.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.contextPhotosRow}
+                    >
+                      {receiptPhotosUrls.map((uri, index) => (
+                        <StandardImage
+                          key={`${uri}-${index}`}
+                          source={uri}
+                          onPress={() => {
+                            setGalleryPhotos(receiptPhotosUrls);
+                            setGalleryTitle('Comprovantes de Pagamento');
+                            setGalleryVisible(true);
+                          }}
+                          containerStyle={styles.contextPhotoContainer}
+                          imageStyle={styles.contextPhoto}
+                        />
+                      ))}
+                    </ScrollView>
                   ) : (
                     <Text style={styles.contextEmptyText}>Nenhum comprovante enviado.</Text>
                   )}
@@ -1532,7 +1596,10 @@ export default function PedidoScreen() {
                           <TouchableOpacity
                             style={[styles.outlineButton, isSending && { opacity: 0.6 }, { flex: 1 }]}
                             disabled={isSending}
-                            onPress={() => setPauseModalVisible(true)}
+                            onPress={() => {
+                              setPauseModalMode('pausar');
+                              setPauseModalVisible(true);
+                            }}
                           >
                             <Feather name="pause" size={18} color="#7A1A1A" />
                             <Text style={[styles.outlineButtonText, { fontSize: 13, marginLeft: 4 }]}>Pausar Serviço</Text>
@@ -1540,7 +1607,10 @@ export default function PedidoScreen() {
                           <TouchableOpacity
                             style={[styles.outlineButton, isSending && { opacity: 0.6 }, { flex: 1 }]}
                             disabled={isSending}
-                            onPress={() => setPauseModalVisible(true)}
+                            onPress={() => {
+                              setPauseModalMode('reagendar');
+                              setPauseModalVisible(true);
+                            }}
                           >
                             <Feather name="calendar" size={18} color="#7A1A1A" />
                             <Text style={[styles.outlineButtonText, { fontSize: 13, marginLeft: 4 }]}>Reagendar</Text>
@@ -1583,7 +1653,10 @@ export default function PedidoScreen() {
                       <TouchableOpacity
                         style={[styles.outlineButton, isSending && { opacity: 0.6 }, { flex: 1 }]}
                         disabled={isSending}
-                        onPress={() => setPauseModalVisible(true)}
+                        onPress={() => {
+                          setPauseModalMode('reagendar');
+                          setPauseModalVisible(true);
+                        }}
                       >
                         <Feather name="calendar" size={18} color="#7A1A1A" />
                         <Text style={[styles.outlineButtonText, { fontSize: 13, marginLeft: 4 }]}>Reagendar</Text>
@@ -1601,6 +1674,13 @@ export default function PedidoScreen() {
         visible={!!zoomedImage}
         imageUri={normalizeImageUri(zoomedImage)}
         onClose={() => setZoomedImage(null)}
+      />
+
+      <PhotoGalleryModal
+        visible={isGalleryVisible}
+        photos={galleryPhotos}
+        title={galleryTitle}
+        onClose={() => setGalleryVisible(false)}
       />
 
       <ChecklistModal
@@ -1634,6 +1714,7 @@ export default function PedidoScreen() {
         visible={isPauseModalVisible}
         onClose={() => setPauseModalVisible(false)}
         onConfirm={handlePausarServico}
+        mode={pauseModalMode}
       />
 
       <NotCompletedModal

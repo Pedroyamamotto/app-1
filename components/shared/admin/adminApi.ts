@@ -1142,8 +1142,9 @@ export function buildTechniciansFromServices(services: AdminServiceData[]): Admi
     current.total += 1;
     if (service.status === 'concluido') {
       current.concluidos += 1;
-      if (service.tempoTrabalhadoMs) {
-        current.tempoTotalMs = (current.tempoTotalMs || 0) + service.tempoTrabalhadoMs;
+      const workedMs = Number(service.tempoTrabalhadoMs || (service as any).tempo_trabalhado_ms || 0);
+      if (workedMs > 0) {
+        current.tempoTotalMs = (current.tempoTotalMs || 0) + workedMs;
       }
     }
     if (service.status === 'aguardando' || service.status === 'atribuido') {

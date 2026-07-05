@@ -86,21 +86,10 @@ export default function MinhaEquipeScreen() {
   // Agrupar serviços por técnico
   const groupedTecs = useMemo(() => {
     const tecStats = buildTechniciansFromServices(services);
-    
-    // Filtrar pelo search
-    let filteredServices = services;
-    if (searchText) {
-      const lower = searchText.toLowerCase();
-      filteredServices = services.filter(s => 
-        (s.cliente && s.cliente.toLowerCase().includes(lower)) ||
-        (s.endereco && s.endereco.toLowerCase().includes(lower)) ||
-        (s.tecnico && s.tecnico.toLowerCase().includes(lower))
-      );
-    }
-
     const groupedMap = new Map<string, { nome: string, initials: string, servicos: AdminServiceData[], tempoMedioMs?: number }>();
     
-    filteredServices.forEach(s => {
+    // Agrupa todos os serviços primeiro
+    services.forEach(s => {
       const nome = s.tecnico && s.tecnico !== 'Nao atribuido' ? s.tecnico : 'Sem técnico';
       if (!groupedMap.has(nome)) {
         const initialsMatch = nome.match(/\b\w/g);
@@ -111,7 +100,31 @@ export default function MinhaEquipeScreen() {
       groupedMap.get(nome)!.servicos.push(s);
     });
 
-    return Array.from(groupedMap.values()).sort((a, b) => b.servicos.length - a.servicos.length);
+    const allGroups = Array.from(groupedMap.values());
+
+    // Filtra pelo search text
+    if (searchText) {
+      const lower = searchText.toLowerCase();
+      return allGroups.map(group => {
+        const matchesTecnicoName = group.nome.toLowerCase().includes(lower);
+        if (matchesTecnicoName) {
+          // Se o termo busca coincide com o nome do técnico, exibe ele com todas as suas OS
+          return group;
+        }
+        // Caso contrário, filtra os serviços dele por cliente ou endereço
+        const filtered = group.servicos.filter(s => 
+          (s.cliente && s.cliente.toLowerCase().includes(lower)) ||
+          (s.endereco && s.endereco.toLowerCase().includes(lower))
+        );
+        return {
+          ...group,
+          servicos: filtered
+        };
+      }).filter(group => group.servicos.length > 0)
+        .sort((a, b) => b.servicos.length - a.servicos.length);
+    }
+
+    return allGroups.sort((a, b) => b.servicos.length - a.servicos.length);
   }, [services, searchText]);
 
   return (
