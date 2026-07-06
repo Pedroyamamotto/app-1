@@ -235,6 +235,11 @@ const buildReportHtml = (data: ReportData): string => {
       margin-left: auto;
       margin-right: auto;
       page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .info-card, .checklist-item, .photo-card {
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     .signature-img, .comprovante-img {
       max-width: 100%;

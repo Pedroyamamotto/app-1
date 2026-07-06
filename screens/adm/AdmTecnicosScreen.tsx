@@ -3,7 +3,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
 import { Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, formatTimeDuration, updateAdminUser, type AdminTechnicianData } from '../../components/shared/admin/adminApi';
+import { buildTechniciansFromServices, fetchAdminDashboardFromApi, fetchAdminGerentesFromApi, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, formatTimeDuration, updateAdminUser, type AdminGerenteUser, type AdminTechnicianData } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
@@ -16,15 +16,19 @@ export default function AdmTecnicosScreen() {
   const navigation = useNavigation();
   const [selectedTecnico, setSelectedTecnico] = useState<Tecnico | null>(null);
   const [tecnicos, setTecnicos] = useState<Tecnico[]>([]);
+  const [gerentes, setGerentes] = useState<AdminGerenteUser[]>([]);
+  const [activeTab, setActiveTab] = useState<'tecnicos' | 'gerentes'>('tecnicos');
   const [overview, setOverview] = useState({ aguardando: 0, atribuidos: 0, concluidos: 0, total: 0 });
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [selectedGerente, setSelectedGerente] = useState<AdminGerenteUser | null>(null);
 
   const loadTecnicos = useCallback(async () => {
     try {
-      const [services, tecnicoUsers, dashData] = await Promise.all([
+      const [services, tecnicoUsers, dashData, gerentesData] = await Promise.all([
         fetchAdminServicesAllFromApi(),
         fetchAdminTecnicosFromApi(),
         fetchAdminDashboardFromApi(),
+        fetchAdminGerentesFromApi().catch(() => [] as AdminGerenteUser[]),
       ]);
 
       const fromServices = buildTechniciansFromServices(services);
@@ -56,6 +60,20 @@ export default function AdmTecnicosScreen() {
 
       // Não inclui técnicos "sem cadastro" (apenas presentes nos serviços, mas não no banco)
       setTecnicos(merged);
+
+      // Cruza stats de serviços com gerentes (gerentes também podem ser atribuídos a serviços)
+      const mergedGerentes = gerentesData.map((ger) => {
+        const stats = serviceStatsByName.get(normalizeName(ger.nome));
+        return {
+          ...ger,
+          total: stats?.total ?? 0,
+          ativos: stats?.ativos ?? 0,
+          concluidos: stats?.concluidos ?? 0,
+          tempoMedioMs: stats?.tempoMedioMs ?? 0,
+          atendimentos: stats?.atendimentos ?? [],
+        };
+      });
+      setGerentes(mergedGerentes);
       setLoadError(null);
       setOverview({
         aguardando: dashData.resumo.aguardando,
@@ -132,48 +150,124 @@ export default function AdmTecnicosScreen() {
           ]}
         />
 
-        {/* Cards dos tecnicos */}
-        {tecnicos.map((tec) => (
-          <TouchableOpacity key={tec.id} style={styles.tecCard} activeOpacity={0.9} onPress={() => setSelectedTecnico(tec)}>
-            <View style={styles.tecHeader}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarLetter}>{tec.nome.charAt(0)}</Text>
-              </View>
-              <View style={styles.tecInfo}>
-                <Text style={styles.tecNome}>{tec.nome}</Text>
-                <Text style={styles.tecEmail}>{tec.email}</Text>
-              </View>
-            </View>
-
-            <View style={styles.tecStats}>
-              <View style={styles.tecStatItem}>
-                <Text style={styles.tecStatNumber}>{tec.total}</Text>
-                <Text style={styles.tecStatLabel}>Total</Text>
-              </View>
-              <View style={[styles.tecStatItem, styles.tecStatItemGreen]}>
-                <Text style={[styles.tecStatNumber, { color: '#15803d' }]}>{tec.ativos}</Text>
-                <Text style={styles.tecStatLabel}>Ativos</Text>
-              </View>
-              <View style={[styles.tecStatItem, styles.tecStatItemBlue]}>
-                <Text style={[styles.tecStatNumber, { color: '#1d4ed8' }]}>{tec.concluidos}</Text>
-                <Text style={styles.tecStatLabel}>Concluidos</Text>
-              </View>
-              <View style={[styles.tecStatItem, { backgroundColor: '#f8fafc' }]}>
-                <Text style={[styles.tecStatNumber, { color: '#475569' }]}>{formatTimeDuration(tec.tempoMedioMs)}</Text>
-                <Text style={styles.tecStatLabel}>T. Médio</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        ))}
-
-        {tecnicos.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Nenhum tecnico encontrado</Text>
-            <Text style={styles.emptySubtitle}>
-              {loadError || 'A API ainda nao retornou servicos com tecnico atribuido.'}
+        {/* Tab Selector */}
+        <View style={styles.tabSelector}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'tecnicos' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('tecnicos')}
+          >
+            <Feather name="tool" size={15} color={activeTab === 'tecnicos' ? '#fff' : '#7A1A1A'} />
+            <Text style={[styles.tabBtnText, activeTab === 'tecnicos' && styles.tabBtnTextActive]}>
+              Técnicos ({tecnicos.length})
             </Text>
-          </View>
-        ) : null}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'gerentes' && styles.tabBtnActive]}
+            onPress={() => setActiveTab('gerentes')}
+          >
+            <Feather name="briefcase" size={15} color={activeTab === 'gerentes' ? '#fff' : '#7A1A1A'} />
+            <Text style={[styles.tabBtnText, activeTab === 'gerentes' && styles.tabBtnTextActive]}>
+              Gerentes ({gerentes.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Cards dos tecnicos */}
+        {activeTab === 'tecnicos' && (
+          <>
+            {tecnicos.map((tec) => (
+              <TouchableOpacity key={tec.id} style={styles.tecCard} activeOpacity={0.9} onPress={() => setSelectedTecnico(tec)}>
+                <View style={styles.tecHeader}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarLetter}>{tec.nome.charAt(0)}</Text>
+                  </View>
+                  <View style={styles.tecInfo}>
+                    <Text style={styles.tecNome}>{tec.nome}</Text>
+                    <Text style={styles.tecEmail}>{tec.email}</Text>
+                  </View>
+                  <View style={styles.roleBadge}>
+                    <Text style={styles.roleBadgeText}>Técnico</Text>
+                  </View>
+                </View>
+
+                <View style={styles.tecStats}>
+                  <View style={styles.tecStatItem}>
+                    <Text style={styles.tecStatNumber}>{tec.total}</Text>
+                    <Text style={styles.tecStatLabel}>Total</Text>
+                  </View>
+                  <View style={[styles.tecStatItem, styles.tecStatItemGreen]}>
+                    <Text style={[styles.tecStatNumber, { color: '#15803d' }]}>{tec.ativos}</Text>
+                    <Text style={styles.tecStatLabel}>Ativos</Text>
+                  </View>
+                  <View style={[styles.tecStatItem, styles.tecStatItemBlue]}>
+                    <Text style={[styles.tecStatNumber, { color: '#1d4ed8' }]}>{tec.concluidos}</Text>
+                    <Text style={styles.tecStatLabel}>Concluidos</Text>
+                  </View>
+                  <View style={[styles.tecStatItem, { backgroundColor: '#f8fafc' }]}>
+                    <Text style={[styles.tecStatNumber, { color: '#475569' }]}>{formatTimeDuration(tec.tempoMedioMs)}</Text>
+                    <Text style={styles.tecStatLabel}>T. Médio</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+            {tecnicos.length === 0 && (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Nenhum técnico encontrado</Text>
+                <Text style={styles.emptySubtitle}>
+                  {loadError || 'A API ainda não retornou serviços com técnico atribuído.'}
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+
+        {/* Cards dos gerentes */}
+        {activeTab === 'gerentes' && (
+          <>
+            {gerentes.map((ger) => (
+              <TouchableOpacity key={ger.id} style={[styles.tecCard, { borderLeftColor: '#5b21b6' }]} activeOpacity={0.9} onPress={() => setSelectedGerente(ger)}>
+                <View style={styles.tecHeader}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarLetter}>{ger.nome.charAt(0)}</Text>
+                  </View>
+                  <View style={styles.tecInfo}>
+                    <Text style={styles.tecNome}>{ger.nome}</Text>
+                    <Text style={styles.tecEmail}>{ger.email}</Text>
+                    {ger.telefone ? <Text style={styles.tecEmail}>{ger.telefone}</Text> : null}
+                  </View>
+                  <View style={[styles.roleBadge, { backgroundColor: '#ede9fe', borderColor: '#c4b5fd' }]}>
+                    <Text style={[styles.roleBadgeText, { color: '#5b21b6' }]}>Gerente</Text>
+                  </View>
+                </View>
+
+                <View style={styles.tecStats}>
+                  <View style={styles.tecStatItem}>
+                    <Text style={styles.tecStatNumber}>{ger.total ?? 0}</Text>
+                    <Text style={styles.tecStatLabel}>Total</Text>
+                  </View>
+                  <View style={[styles.tecStatItem, styles.tecStatItemGreen]}>
+                    <Text style={[styles.tecStatNumber, { color: '#15803d' }]}>{ger.ativos ?? 0}</Text>
+                    <Text style={styles.tecStatLabel}>Ativos</Text>
+                  </View>
+                  <View style={[styles.tecStatItem, styles.tecStatItemBlue]}>
+                    <Text style={[styles.tecStatNumber, { color: '#1d4ed8' }]}>{ger.concluidos ?? 0}</Text>
+                    <Text style={styles.tecStatLabel}>Concluidos</Text>
+                  </View>
+                  <View style={[styles.tecStatItem, { backgroundColor: '#f8fafc' }]}>
+                    <Text style={[styles.tecStatNumber, { color: '#475569' }]}>{formatTimeDuration(ger.tempoMedioMs)}</Text>
+                    <Text style={styles.tecStatLabel}>T. Médio</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+            {gerentes.length === 0 && (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Nenhum gerente encontrado</Text>
+                <Text style={styles.emptySubtitle}>Nenhum gerente está cadastrado no sistema.</Text>
+              </View>
+            )}
+          </>
+        )}
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -330,9 +424,141 @@ export default function AdmTecnicosScreen() {
           </SafeAreaView>
         ) : null}
       </Modal>
-    </SafeAreaView>
-  );
-}
+
+          {/* Modal Perfil do Gerente */}
+          <Modal
+            visible={selectedGerente !== null}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setSelectedGerente(null)}
+          >
+            {selectedGerente ? (
+              <SafeAreaView style={styles.detailSafeArea}>
+                <StatusBar barStyle="light-content" backgroundColor="#2a0000" />
+                <View style={styles.detailContainer}>
+                  <View style={[styles.detailHeader, { backgroundColor: '#2d1b69' }]}>
+                    <TouchableOpacity
+                      style={styles.detailBackButton}
+                      activeOpacity={0.85}
+                      onPress={() => setSelectedGerente(null)}
+                    >
+                      <Feather name="chevron-left" size={22} color="#fff" />
+                    </TouchableOpacity>
+                    <View style={styles.detailHeaderInfo}>
+                      <View style={[styles.detailAvatar, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                        <Text style={styles.detailAvatarLetter}>{selectedGerente.nome.charAt(0)}</Text>
+                      </View>
+                      <View style={styles.detailHeaderTextBox}>
+                        <Text style={styles.detailHeaderTitle}>{selectedGerente.nome}</Text>
+                        <Text style={styles.detailHeaderSub}>Gerente · {selectedGerente.tecnicosVinculados} técnico(s) na equipe</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false}>
+                    {/* Informações */}
+                    <View style={styles.detailCard}>
+                      <Text style={styles.detailSectionTitle}>Informações do Gerente</Text>
+                      <View style={styles.detailInfoRow}>
+                        <Feather name="mail" size={16} color="#64748b" />
+                        <Text style={styles.detailInfoText}>{selectedGerente.email}</Text>
+                      </View>
+                      {selectedGerente.telefone ? (
+                        <View style={styles.detailInfoRow}>
+                          <Feather name="phone" size={16} color="#64748b" />
+                          <Text style={styles.detailInfoText}>{selectedGerente.telefone}</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.detailInfoRow}>
+                        <Feather name="map-pin" size={16} color={selectedGerente.lastLocation ? '#15803d' : '#dc2626'} />
+                        <Text style={styles.detailInfoText}>
+                          {selectedGerente.lastLocation
+                            ? `GPS ativo · ${selectedGerente.lastLocation.latitude.toFixed(5)}, ${selectedGerente.lastLocation.longitude.toFixed(5)}`
+                            : 'Sem localização GPS'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Métricas */}
+                    <View style={styles.metricsRow}>
+                      <View style={styles.metricCard}>
+                        <Text style={styles.metricValue}>{selectedGerente.total ?? 0}</Text>
+                        <Text style={styles.metricLabel}>Total</Text>
+                      </View>
+                      <View style={[styles.metricCard, styles.metricCardGreen]}>
+                        <Text style={[styles.metricValue, styles.metricValueGreen]}>{selectedGerente.ativos ?? 0}</Text>
+                        <Text style={styles.metricLabel}>Ativos</Text>
+                      </View>
+                      <View style={[styles.metricCard, styles.metricCardBlue]}>
+                        <Text style={[styles.metricValue, styles.metricValueBlue]}>{selectedGerente.concluidos ?? 0}</Text>
+                        <Text style={styles.metricLabel}>Concluidos</Text>
+                      </View>
+                      <View style={[styles.metricCard, { backgroundColor: '#f8fafc' }]}>
+                        <Text style={[styles.metricValue, { color: '#475569' }]}>{formatTimeDuration(selectedGerente.tempoMedioMs)}</Text>
+                        <Text style={styles.metricLabel}>T. Médio</Text>
+                      </View>
+                    </View>
+
+                    {/* Atendimentos */}
+                    {(selectedGerente.atendimentos ?? []).length > 0 ? (
+                      <View style={styles.detailCard}>
+                        <Text style={styles.detailSectionTitle}>Atendimentos</Text>
+                        {(selectedGerente.atendimentos ?? []).map((item) => (
+                          <TouchableOpacity
+                            key={item.id}
+                            style={[styles.orderCard, { backgroundColor: '#fff', borderLeftWidth: 4, borderLeftColor: (statusBadgeColorByCode as any)[item.status] || '#d1d5db' }]}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              setSelectedGerente(null);
+                              (navigation as any).navigate('Pedidos', { selectedServiceId: item.id, fromTab: 'Tecnicos' });
+                            }}
+                          >
+                            <View style={styles.orderTopRow}>
+                              <View style={styles.orderIdentityRow}>
+                                <Text style={styles.orderId}>{formatPedidoLabel(item.numeroPedido)}</Text>
+                                {item.numeroOrdemServico ? (
+                                  <View style={styles.osBadge}>
+                                    <Text style={styles.osBadgeText}>{formatOrdemServicoLabel(item.numeroOrdemServico)}</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                              <Text style={[styles.orderBadge, { backgroundColor: (statusBadgeColorByCode as any)[item.status] }]}>
+                                {(statusLabelByCode as any)[item.status]}
+                              </Text>
+                            </View>
+                            <Text style={styles.clientName}>{item.cliente}</Text>
+                            <View style={styles.infoRow}>
+                              <Feather name="map-pin" size={16} color="#ef4444" />
+                              <Text style={styles.infoText}>{item.endereco}</Text>
+                            </View>
+                            <View style={styles.infoRow}>
+                              <Feather name="clock" size={16} color="#64748b" />
+                              <Text style={styles.infoText}>{item.data && item.data !== '--/--/--' ? item.data : (item.dataConclusao || '--/--/--')} às {item.hora && item.hora !== '--:--' ? item.hora : (item.horaConclusao || '--:--')}</Text>
+                            </View>
+                            <View style={styles.descriptionBox}>
+                              <Text style={styles.descriptionText}>{formatLockDisplayName(item.servico)}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    ) : null}
+
+                    <TouchableOpacity
+                      style={[styles.closeDetailButton, { marginTop: 12 }]}
+                      activeOpacity={0.9}
+                      onPress={() => setSelectedGerente(null)}
+                    >
+                      <Text style={styles.closeDetailButtonText}>Fechar</Text>
+                    </TouchableOpacity>
+                    <View style={{ height: 40 }} />
+                  </ScrollView>
+                </View>
+              </SafeAreaView>
+            ) : null}
+          </Modal>
+        </SafeAreaView>
+      );
+    }
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -355,11 +581,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 16,
+    marginBottom: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
     borderLeftWidth: 4,
     borderLeftColor: '#7A1A1A',
   },
@@ -422,6 +649,53 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontWeight: '500',
     marginTop: 2,
+  },
+  tabSelector: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f3f7',
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 11,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  tabBtnActive: {
+    backgroundColor: '#7A1A1A',
+    shadowColor: '#7A1A1A',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  tabBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#7A1A1A',
+  },
+  tabBtnTextActive: {
+    color: '#fff',
+  },
+  roleBadge: {
+    backgroundColor: '#fef2f2',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  roleBadgeText: {
+    color: '#7A1A1A',
+    fontSize: 11,
+    fontWeight: '700',
   },
   emptyCard: {
     backgroundColor: '#fff',

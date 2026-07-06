@@ -41,6 +41,11 @@ export type AdminTecnicoUser = {
   telefone: string;
   gerenteId?: string;
   criadoEm?: string;
+  lastLocation?: {
+    latitude: number;
+    longitude: number;
+    updated_at: string;
+  };
 };
 
 export type AdminGerenteUser = {
@@ -49,6 +54,29 @@ export type AdminGerenteUser = {
   email: string;
   telefone: string;
   tecnicosVinculados: number;
+  lastLocation?: {
+    latitude: number;
+    longitude: number;
+    updated_at: string;
+  };
+  total?: number;
+  ativos?: number;
+  concluidos?: number;
+  tempoMedioMs?: number;
+  atendimentos?: {
+    id: string;
+    cliente: string;
+    servico: string;
+    status: AdminServiceStatus;
+    data: string;
+    hora: string;
+    telefone?: string;
+    endereco?: string;
+    dataConclusao?: string;
+    horaConclusao?: string;
+    numeroPedido?: string;
+    numeroOrdemServico?: string;
+  }[];
 };
 
 export type AdminTechnicianData = {
@@ -149,6 +177,16 @@ type UploadServiceContextPhotoPayload = {
   uri: string;
   mimeType?: string;
   fileName?: string;
+};
+
+export type SmartAssignmentSuggestion = {
+  tecnicoId: string;
+  nome: string;
+  email: string;
+  telefone: string;
+  role: 'tecnico' | 'gerente';
+  distanceKm: number | null;
+  activeCount: number;
 };
 
 export type CreateAdminServiceRequestPayload = {
@@ -886,6 +924,7 @@ export async function fetchAdminTecnicosFromApi(): Promise<AdminTecnicoUser[]> {
     telefone: String(item?.telefone || item?.phone || 'Nao informado'),
     gerenteId: item?.gerente_id || item?.gerenteId ? String(item?.gerente_id || item?.gerenteId) : undefined,
     criadoEm: item?.Created_et || item?.created_at || item?.Created_at || undefined,
+    lastLocation: item?.lastLocation || undefined,
   }));
 }
 
@@ -948,6 +987,32 @@ export async function assignAdminService(
   });
 
   await throwIfNotOk(res, 'Nao foi possivel atribuir tecnico ao servico');
+}
+
+export async function fetchNearestTechnicianSuggestion(
+  serviceId: string
+): Promise<SmartAssignmentSuggestion | null> {
+  const res = await apiFetch(`/api/services/${serviceId}/admin/atribuir/sugestao`, {
+    headers: adminHeaders(),
+  });
+
+  await throwIfNotOk(res, 'Nao foi possivel calcular sugestao de atribuicao');
+
+  const payload = await readJsonSafely(res);
+  const suggestion = (payload as any)?.suggestion;
+  if (!suggestion) {
+    return null;
+  }
+
+  return {
+    tecnicoId: normalizeMongoId(suggestion?.tecnico_id || suggestion?.tecnicoId || suggestion?.id),
+    nome: String(suggestion?.nome || ''),
+    email: String(suggestion?.email || ''),
+    telefone: String(suggestion?.telefone || ''),
+    role: String(suggestion?.typeUser || 'tecnico') === 'gerente' ? 'gerente' : 'tecnico',
+    distanceKm: Number.isFinite(Number(suggestion?.distance_km)) ? Number(suggestion?.distance_km) : null,
+    activeCount: Number(suggestion?.active_count || 0),
+  };
 }
 
 const extractAddressParts = (enderecoCompleto: string) => {
@@ -1208,6 +1273,7 @@ export async function fetchAdminGerentesFromApi(): Promise<AdminGerenteUser[]> {
     email: String(item?.email || ''),
     telefone: String(item?.telefone || item?.phone || ''),
     tecnicosVinculados: Number(item?.tecnicosVinculados || 0),
+    lastLocation: item?.lastLocation || undefined,
   }));
 }
 

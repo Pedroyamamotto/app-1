@@ -1,9 +1,10 @@
-import { FontAwesome } from '@expo/vector-icons';
+import { FontAwesome, Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
 import AppHeader from '../components/shared/AppHeader';
 import ServiceListCard from '../components/shared/ServiceListCard';
 import SummaryCard from '../components/shared/SummaryCard';
@@ -11,10 +12,12 @@ import { apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 import { formatTimeDuration } from '../components/shared/admin/adminApi';
 import { useUser } from '../context/UserContext';
+import { useAppTheme } from '../context/ThemeContext';
 import { cleanText } from '../utils/platformUtils';
 
 const HomeScreen = () => {
   const { user, logout } = useUser();
+  const { isDarkMode, toggleTheme, colors } = useAppTheme();
   const navigation = useNavigation<any>();
   const [isLoading, setIsLoading] = useState(true);
   const [summary, setSummary] = useState({ concluido: 0, naoConcluida: 0, emEspera: 0, tempoMedioMs: 0 });
@@ -32,6 +35,43 @@ const HomeScreen = () => {
     : null;
 
   const tecnicoId = user?.userId;
+
+  // Atualiza a localização atual do técnico periodicamente enquanto o app estiver aberto
+  useEffect(() => {
+    if (Platform.OS === 'web' || !user?.userId) return;
+
+    const trackLocation = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.warn('Permissão de localização negada na home');
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const { latitude, longitude } = loc.coords;
+        const targetUserId = user.userId || user.id || user._id;
+        if (targetUserId) {
+          await apiFetch(`/api/users/${targetUserId}/location`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ latitude, longitude }),
+          });
+          console.log('[LocationTracker] Localização atualizada automaticamente:', latitude, longitude);
+        }
+      } catch (err) {
+        console.warn('[LocationTracker] Erro ao atualizar localização automaticamente:', err);
+      }
+    };
+
+    // Executa imediatamente
+    trackLocation();
+
+    // Roda a cada 60 segundos
+    const intervalId = setInterval(trackLocation, 60000);
+    return () => clearInterval(intervalId);
+  }, [user?.userId]);
 
   const normalizeServices = (payload) => {
     if (Array.isArray(payload)) return payload;
@@ -277,6 +317,43 @@ const HomeScreen = () => {
     }
   }, [Notifications, hasLoadedOnce, tecnicoId]);
 
+  useEffect(() => {
+    const registerForPushNotificationsAsync = async () => {
+      if (Platform.OS === 'web' || !Notifications) return;
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus !== 'granted') {
+          console.warn('Falha ao obter permissão para notificações push!');
+          return;
+        }
+
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+        const token = tokenData.data;
+        console.log('Expo Push Token obtido:', token);
+
+        if (token && user?.userId) {
+          await apiFetch(`/api/users/${user.userId}/push-token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pushToken: token }),
+          });
+        }
+      } catch (error) {
+        console.warn('Erro ao obter token de notificação:', error);
+      }
+    };
+
+    if (user?.userId) {
+      registerForPushNotificationsAsync();
+    }
+  }, [user?.userId, Notifications]);
+
   useFocusEffect(
     useCallback(() => {
       loadHome();
@@ -293,16 +370,21 @@ const HomeScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#7A1A1A" />
-      <View style={styles.container}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.primary }]}>
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.primary} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <AppHeader
           title="Home"
           subtitle={`Bem-vindo ${user?.name || 'João'}`}
           rightContent={(
-            <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-              <FontAwesome name="sign-out" size={24} color="#fff" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+              <TouchableOpacity onPress={toggleTheme} style={{ padding: 4 }}>
+                <Feather name={isDarkMode ? 'sun' : 'moon'} size={22} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+                <FontAwesome name="sign-out" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
           )}
         />
 
@@ -310,14 +392,14 @@ const HomeScreen = () => {
         <SummaryCard
           title="Visão Geral"
           items={[
-            { label: 'Concluído', value: summary.concluido, color: '#1890ff' },
+            { label: 'Concluído', value: summary.concluido, color: '#10b981' },
             { label: 'Não Concluída', value: summary.naoConcluida, color: '#ff4d4f' },
-            { label: 'Em Espera', value: summary.emEspera, color: '#7A1A1A' },
-            { label: 'T. Médio', value: formatTimeDuration(summary.tempoMedioMs), color: '#475569' },
+            { label: 'Em Espera', value: summary.emEspera, color: '#f59e0b' },
+            { label: 'T. Médio', value: formatTimeDuration(summary.tempoMedioMs), color: '#64748b' },
           ]}
         />
 
-        <Text style={styles.servicesTitle}>Próximas Instalações</Text>
+        <Text style={[styles.servicesTitle, { color: colors.text }]}>Próximas Instalações</Text>
 
         {isLoading ? (
           <View style={styles.emptyCard}>
@@ -372,32 +454,43 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#f0f2f5',
+    backgroundColor: '#FAF9F6', // Off-white minimalist background
   },
   logoutButton: {
     padding: 10,
   },
   content: {
     flex: 1,
-    padding: 20,
-    marginTop: 22,
+    paddingHorizontal: 20,
+    paddingTop: 24,
   },
   servicesTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 15,
+    fontWeight: '700',
+    color: '#1e293b', // Slate 800
+    marginBottom: 16,
+    letterSpacing: -0.3,
   },
   emptyCard: {
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#64748b', // Slate 500
+    textAlign: 'center',
   },
 });
 

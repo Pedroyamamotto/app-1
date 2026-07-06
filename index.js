@@ -10,6 +10,7 @@ import { registerRootComponent } from 'expo';
 import Constants from 'expo-constants';
 import { useFonts } from 'expo-font';
 import { UserProvider } from './context/UserContext';
+import { ThemeProvider } from './context/ThemeContext';
 import AppNavigator from './navigation/AppNavigator';
 
 const isExpoGo =
@@ -27,7 +28,7 @@ if (!isExpoGo) {
   });
 }
 
-// O componente principal agora simplesmente envolve o AppNavigator com o UserProvider.
+// O componente principal agora simplesmente envolve o AppNavigator com o UserProvider e ThemeProvider.
 // Toda a lógica de qual tela mostrar está dentro do AppNavigator.
 
 const App = () => {
@@ -40,7 +41,9 @@ const App = () => {
   if (!fontsLoaded) return null;
   return (
     <UserProvider>
-      <AppNavigator />
+      <ThemeProvider>
+        <AppNavigator />
+      </ThemeProvider>
     </UserProvider>
   );
 };

@@ -19,6 +19,8 @@ type ServiceListCardProps = {
   onActionPress?: () => void;
 };
 
+import { useAppTheme } from '../../context/ThemeContext';
+
 export default function ServiceListCard({
   numeroPedido,
   descricao,
@@ -35,31 +37,33 @@ export default function ServiceListCard({
   actionColor = '#f15a00',
   onActionPress,
 }: ServiceListCardProps) {
+  const { colors } = useAppTheme();
+  const iconColor = colors.subtext;
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.9} disabled={!onPress}>
-      <View style={[styles.card, { borderLeftColor }]}>
+      <View style={[styles.card, { borderLeftColor, backgroundColor: colors.card }]}>
         <View style={styles.header}>
           <View style={styles.topAddressRow}>
-            <FontAwesome name={headerIconName} size={16} color="#666" />
-            <Text style={styles.topAddressText}>Pedido {String(numeroPedido)}</Text>
+            <FontAwesome name={headerIconName} size={16} color={iconColor} />
+            <Text style={[styles.topAddressText, { color: colors.subtext }]}>Pedido {String(numeroPedido)}</Text>
           </View>
           <Text style={[styles.status, { backgroundColor: statusColor }]}>{statusLabel}</Text>
         </View>
 
-        <Text style={styles.description}>{descricao}</Text>
-        {clientName ? <Text style={styles.client}>{clientName}</Text> : null}
+        <Text style={[styles.description, { color: colors.text }]}>{descricao}</Text>
+        {clientName ? <Text style={[styles.client, { color: colors.subtext }]}>{clientName}</Text> : null}
 
         <View style={styles.addressRow}>
-          <FontAwesome name="map-marker" size={16} color="#666" />
-          <Text style={styles.address}>{endereco}</Text>
+          <FontAwesome name="map-marker" size={16} color={iconColor} />
+          <Text style={[styles.address, { color: colors.subtext }]}>{endereco}</Text>
         </View>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { borderTopColor: colors.border }]}>
           <View style={styles.timeContainer}>
-            <FontAwesome name="clock-o" size={16} color="#666" />
-            <Text style={styles.time}>{hora}</Text>
+            <FontAwesome name="clock-o" size={16} color={iconColor} />
+            <Text style={[styles.time, { color: colors.subtext }]}>{hora}</Text>
           </View>
-          <Text style={styles.date}>{dataTexto}</Text>
+          <Text style={[styles.date, { color: colors.subtext }]}>{dataTexto}</Text>
         </View>
 
         {actionText ? (
@@ -79,16 +83,21 @@ export default function ServiceListCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 15,
-    borderLeftWidth: 5,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 14,
     gap: 8,
   },
   topAddressRow: {
@@ -99,52 +108,55 @@ const styles = StyleSheet.create({
   },
   topAddressText: {
     marginLeft: 8,
-    fontSize: 12,
-    color: '#6b7280',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b', // Slate 500
     flexShrink: 1,
   },
   status: {
     color: '#fff',
-    borderRadius: 12,
+    borderRadius: 8,
     paddingVertical: 4,
     paddingHorizontal: 10,
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontSize: 11,
+    fontWeight: '700',
     overflow: 'hidden',
-    textTransform: 'capitalize',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     flexShrink: 0,
-    maxWidth: '42%',
+    maxWidth: '45%',
   },
   description: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '700',
+    color: '#1e293b', // Slate 800
     marginBottom: 6,
   },
   client: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1f2937',
-    marginBottom: 6,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#475569', // Slate 600
+    marginBottom: 10,
   },
   addressRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   address: {
     fontSize: 14,
-    color: '#666',
+    color: '#64748b', // Slate 500
     marginLeft: 8,
     flex: 1,
+    lineHeight: 20,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 10,
+    borderTopColor: '#f1f5f9', // Slate 100
+    paddingTop: 12,
     gap: 10,
     flexWrap: 'wrap',
   },
@@ -155,24 +167,32 @@ const styles = StyleSheet.create({
   time: {
     marginLeft: 8,
     fontSize: 14,
-    color: '#666',
+    fontWeight: '600',
+    color: '#475569', // Slate 600
   },
   date: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b', // Slate 500
     flexShrink: 1,
     textAlign: 'right',
   },
   actionButton: {
-    marginTop: 12,
+    marginTop: 14,
     borderRadius: 12,
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   actionText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

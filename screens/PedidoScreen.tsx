@@ -1,7 +1,7 @@
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ChecklistModal from '../components/ChecklistModal';
@@ -486,6 +486,38 @@ export default function PedidoScreen() {
 
   const clientName = cleanText(client?.cliente || client?.nome || 'Cliente não informado');
   const phone = client?.telefone || client?.phone || '-';
+  const phoneDigits = String(phone || '').replace(/\D/g, '');
+
+  const handleCallClient = () => {
+    if (!phoneDigits || phoneDigits.length < 10) {
+      Alert.alert('Telefone indisponível', 'Não foi possível identificar um número válido para ligação.');
+      return;
+    }
+
+    Alert.alert(
+      'Ligar para cliente',
+      `Deseja ligar para ${phone}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Ligar',
+          onPress: async () => {
+            const telUrl = `tel:${phoneDigits}`;
+            try {
+              const canOpen = await Linking.canOpenURL(telUrl);
+              if (!canOpen) {
+                Alert.alert('Não foi possível ligar', 'Seu dispositivo não suporta abertura da discagem.');
+                return;
+              }
+              await Linking.openURL(telUrl);
+            } catch {
+              Alert.alert('Erro', 'Falha ao iniciar a ligação para o cliente.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleChecklistComplete = (payload: any) => {
     if (isFinalized) {
@@ -930,7 +962,7 @@ export default function PedidoScreen() {
                 </View>
                 <TouchableOpacity 
                   style={styles.callCircleBtn}
-                  onPress={() => Alert.alert('Ligar para Cliente', `Deseja efetuar ligação para: ${phone}`)}
+                  onPress={handleCallClient}
                 >
                   <Feather name="phone" size={16} color="#64748b" />
                 </TouchableOpacity>
@@ -1391,7 +1423,31 @@ export default function PedidoScreen() {
 
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Endereço</Text>
-                <Text style={styles.infoValue}>{address}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 4 }}>
+                  <Text style={[styles.infoValue, { flex: 1 }]}>{address}</Text>
+                  {address && address !== 'Endereço não informado' ? (
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: '#FAF9F6',
+                        borderWidth: 1.5,
+                        borderColor: '#e2e8f0',
+                        borderRadius: 10,
+                        paddingVertical: 6,
+                        paddingHorizontal: 10,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                      onPress={() => {
+                        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+                        Linking.openURL(url).catch((err) => console.warn('Erro ao abrir o Maps:', err));
+                      }}
+                    >
+                      <Feather name="map" size={14} color="#7A1A1A" />
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#7A1A1A' }}>Ver no Maps</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
 
               <View style={styles.divider} />
@@ -1729,73 +1785,93 @@ export default function PedidoScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#7A1A1A' },
-  container: { flex: 1, backgroundColor: '#f0f2f5' },
+  container: { flex: 1, backgroundColor: '#FAF9F6' },
   header: {
     backgroundColor: '#7A1A1A',
-    paddingHorizontal: 12,
-    paddingTop: 10, // Reduzido pois SafeAreaView já cuida do topo
-    paddingBottom: 15, // Reduzido para ficar mais compacto
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#7A1A1A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 3,
   },
-  backButton: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center', marginRight: 4 },
+  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 4 },
   headerInfoRow: { flexDirection: 'row', alignItems: 'center' },
   titleContainer: { justifyContent: 'center', flex: 1 },
   headerIconCircle: {
-    width: 44, // Reduzido levemente para caber melhor na linha
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
   },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' }, // Reduzido de 20 para 18
+  headerTitle: { fontSize: 20, fontWeight: '700', color: '#fff', letterSpacing: -0.3 },
   orderBadge: {
-    marginTop: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginTop: 6,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     alignSelf: 'flex-start',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  orderBadgeText: { color: '#e5f7ea', fontSize: 14, fontWeight: '600' },
-  content: { padding: 20, paddingBottom: 650, marginTop: 22 },
+  orderBadgeText: { color: '#fff', fontSize: 13, fontWeight: '700', letterSpacing: 0.5 },
+  content: { padding: 20, paddingBottom: 650, marginTop: 12 },
   serviceCard: {
-    backgroundColor: '#eef2f7',
-    borderRadius: 14,
-    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 18,
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#d8e1ea',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 1,
   },
-  serviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  serviceCardTitle: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  serviceCardText: { fontSize: 18, color: '#0f172a', lineHeight: 28 },
-  sectionTitle: { fontSize: 22, fontWeight: '700', color: '#0f172a', marginBottom: 10 },
+  serviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  serviceCardTitle: { fontSize: 14, fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 },
+  serviceCardText: { fontSize: 18, fontWeight: '700', color: '#0f172a', lineHeight: 26 },
+  sectionTitle: { fontSize: 20, fontWeight: '700', color: '#0f172a', marginBottom: 12, letterSpacing: -0.3 },
   infoBlock: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingTop: 15,
-    paddingBottom: 22,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 14,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    marginBottom: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 1,
   },
   infoRow: { paddingVertical: 10 },
-  infoLabel: { fontSize: 14, color: '#64748b', marginBottom: 4 },
+  infoLabel: { fontSize: 13, fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
   infoValue: { fontSize: 16, color: '#0f172a', fontWeight: '600', lineHeight: 22 },
-  divider: { height: 1, backgroundColor: '#e5e7eb' },
+  divider: { height: 1, backgroundColor: '#f1f5f9' },
   contextPhotosBlock: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 1,
   },
-  contextCounter: { color: '#64748b', fontSize: 13, fontWeight: '600' },
+  contextCounter: { color: '#64748b', fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   contextPhotosRow: { gap: 12, paddingRight: 4 },
   contextPhotoContainer: {
     marginVertical: 6,
@@ -1804,37 +1880,47 @@ const styles = StyleSheet.create({
     height: 150,
   },
   contextPhoto: { width: 200, height: 150 },
-  contextEmptyText: { fontSize: 15, color: '#64748b' },
+  contextEmptyText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
   footerActions: {
     position: 'absolute',
     left: 20,
     right: 20,
     bottom: 14,
-    backgroundColor: '#f0f2f5',
+    backgroundColor: '#FAF9F6',
   },
   primaryButton: {
-    backgroundColor: '#00a63f',
-    height: 56,
+    backgroundColor: '#10b981', // emerald 500
+    height: 54,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     marginBottom: 12,
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
   secondaryButton: {
-    backgroundColor: '#e11d48',
-    height: 56,
+    backgroundColor: '#f43f5e', // rose 500
+    height: 54,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    shadowColor: '#f43f5e',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700', marginLeft: 10 },
+  buttonText: { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 0.5, marginLeft: 8 },
   outlineButton: {
     backgroundColor: '#fff',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#7A1A1A',
-    height: 56,
+    height: 54,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1842,17 +1928,23 @@ const styles = StyleSheet.create({
   },
   outlineButtonText: {
     color: '#7A1A1A',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+    letterSpacing: 0.5,
     marginLeft: 8,
   },
   actionCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    gap: 12,
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    gap: 14,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 1,
   },
   notStartedHeader: {
     flexDirection: 'row',
@@ -1861,9 +1953,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   notStartedIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1876,13 +1968,14 @@ const styles = StyleSheet.create({
   notStartedSub: {
     fontSize: 13,
     color: '#64748b',
+    fontWeight: '500',
   },
   rowButtons: {
     flexDirection: 'row',
     gap: 12,
   },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 10, color: '#4b5563', fontSize: 15 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAF9F6' },
+  loadingText: { marginTop: 10, color: '#64748b', fontSize: 14, fontWeight: '500' },
   circleIconBg: {
     width: 32,
     height: 32,
@@ -1892,7 +1985,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardSectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#1e293b',
   },
@@ -1913,50 +2006,63 @@ const styles = StyleSheet.create({
   detailRowLabel: {
     fontSize: 14,
     color: '#64748b',
+    fontWeight: '500',
   },
   detailRowValue: {
     fontSize: 15,
     color: '#0f172a',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   successBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 14,
     marginBottom: 20,
   },
   successBannerText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   statBox: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    padding: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 1,
   },
   statLabel: {
     fontSize: 12,
     color: '#64748b',
-    fontWeight: '500',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   statValue: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#0f172a',
     marginTop: 2,
   },
   gridCard: {
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    borderRadius: 16,
+    padding: 16,
     minHeight: 120,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 1,
   },
   gridCardTitle: {
     fontSize: 14,
@@ -1966,17 +2072,19 @@ const styles = StyleSheet.create({
   gridCardSub: {
     fontSize: 12,
     color: '#64748b',
-    marginTop: 4,
+    marginTop: 6,
     lineHeight: 16,
+    fontWeight: '500',
   },
   badgeStyle: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   badgeText: {
     fontSize: 11,
     fontWeight: '700',
+    textTransform: 'uppercase',
   },
   finalizedFooter: {
     position: 'absolute',
@@ -1987,7 +2095,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: '#e2e8f0',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 14,
     flexDirection: 'row',
     gap: 12,
   },
@@ -2000,6 +2108,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
+    shadowColor: '#7A1A1A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 2,
   },
   gerarRelatorioBtnText: {
     color: '#fff',
@@ -2009,8 +2122,8 @@ const styles = StyleSheet.create({
   fecharBtn: {
     flex: 1,
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
     height: 48,
     borderRadius: 12,
     alignItems: 'center',
@@ -2025,8 +2138,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 12,
+    padding: 14,
     marginBottom: 8,
   },
   checklistItemDone: {
@@ -2039,7 +2152,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 6,
-    backgroundColor: '#22c55e',
+    backgroundColor: '#10b981', // emerald 500
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 1,
@@ -2058,6 +2171,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     flex: 1,
     lineHeight: 20,
+    fontWeight: '500',
   },
   checklistLabelPending: {
     color: '#94a3b8',

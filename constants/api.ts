@@ -1,5 +1,5 @@
-export const API_BASE_URL = 'http://192.168.0.33:3000'; // 'https://api-bling-990709313938.us-central1.run.app';
-export const API_FALLBACK_BASE_URL = 'http://192.168.0.33:3000'; // 'https://api-bling-990709313938.us-central1.run.app';
+export const API_BASE_URL = 'https://api-bling-990709313938.us-central1.run.app';
+export const API_FALLBACK_BASE_URL = 'https://api-bling-990709313938.us-central1.run.app';
 
 type ApiFetchInit = RequestInit & {
 	allowFallback?: boolean;

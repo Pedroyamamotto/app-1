@@ -1,5 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -10,7 +11,25 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Platform,
 } from 'react-native';
+
+const compressImage = async (uri: string): Promise<string> => {
+  if (Platform.OS === 'web' || !uri.startsWith('file:')) {
+    return uri;
+  }
+  try {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1280 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    return result.uri;
+  } catch (error) {
+    console.warn('Erro ao comprimir imagem:', error);
+    return uri;
+  }
+};
 
 type ChecklistModalProps = {
   visible: boolean;
@@ -111,11 +130,16 @@ const ChecklistModal = ({
     });
 
     if (!result.canceled) {
-      const selected = result.assets.map(asset => ({
-        uri: asset.uri,
-        mimeType: asset.mimeType || 'image/jpeg',
-        fileName: asset.fileName || 'comprovante.jpg',
-      }));
+      const selected = await Promise.all(
+        result.assets.map(async (asset) => {
+          const compressedUri = await compressImage(asset.uri);
+          return {
+            uri: compressedUri,
+            mimeType: asset.mimeType || 'image/jpeg',
+            fileName: asset.fileName || 'comprovante.jpg',
+          };
+        })
+      );
       setReceiptPhotos(prev => [...prev, ...selected].slice(0, 5));
     }
   };
@@ -137,8 +161,9 @@ const ChecklistModal = ({
 
     if (!result.canceled) {
       const asset = result.assets[0];
+      const compressedUri = await compressImage(asset.uri);
       const newPhoto = {
-        uri: asset.uri,
+        uri: compressedUri,
         mimeType: asset.mimeType || 'image/jpeg',
         fileName: asset.fileName || 'comprovante.jpg',
       };

@@ -8,6 +8,7 @@ import AdmAdicionarImagemScreen from '../screens/adm/AdmAdicionarImagemScreen';
 import AdmHomeScreen from '../screens/adm/AdmHomeScreen';
 import AdmRelatoriosScreen from '../screens/adm/AdmRelatoriosScreen';
 import AdmTecnicosScreen from '../screens/adm/AdmTecnicosScreen';
+import AdmMapaScreen from '../screens/adm/AdmMapaScreen';
 import AgendaScreen from '../screens/AgendaScreen';
 import DetalhesServicoScreen from '../screens/DetalhesServicoScreen';
 import MinhaEquipeScreen from '../screens/ger/MinhaEquipeScreen';
@@ -189,6 +190,7 @@ function AdminTabs() {
             Pedidos: 'home-outline',
             Tecnicos: 'account-check-outline',
             Gerentes: 'account-tie-outline',
+            Mapa: 'map-marker-outline',
             Relatorios: 'chart-bar',
           } as const;
 
@@ -214,6 +216,7 @@ function AdminTabs() {
       <Tab.Screen name="Pedidos" component={AdmHomeScreen} />
       <Tab.Screen name="Tecnicos" component={AdmTecnicosScreen} />
       <Tab.Screen name="Gerentes" component={AdmGerentesScreen} />
+      <Tab.Screen name="Mapa" component={AdmMapaScreen} />
       <Tab.Screen name="Relatorios" component={AdmRelatoriosScreen} />
     </Tab.Navigator>
   );

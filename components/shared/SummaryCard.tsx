@@ -12,10 +12,13 @@ type SummaryCardProps = {
   items: SummaryItem[];
 };
 
+import { useAppTheme } from '../../context/ThemeContext';
+
 export default function SummaryCard({ title, items }: SummaryCardProps) {
+  const { colors } = useAppTheme();
   return (
-    <View style={styles.summaryCard}>
-      {title ? <Text style={styles.summaryTitle}>{title}</Text> : null}
+    <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      {title ? <Text style={[styles.summaryTitle, { color: colors.text }]}>{title}</Text> : null}
       <View style={styles.summaryStats}>
         {items.map((item) => (
           <View 
@@ -29,7 +32,7 @@ export default function SummaryCard({ title, items }: SummaryCardProps) {
             ]}
           >
             <Text style={[styles.statNumber, { color: item.color }]}>{item.value}</Text>
-            <Text style={styles.statLabel}>{item.label}</Text>
+            <Text style={[styles.statLabel, { color: colors.subtext }]}>{item.label}</Text>
           </View>
         ))}
       </View>

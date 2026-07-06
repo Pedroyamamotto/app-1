@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Linking } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageZoomModal, { PhotoGalleryModal } from '../../components/ImageZoomModal';
@@ -512,8 +512,6 @@ const AdmHomeScreen = ({ isGerente = false }: { isGerente?: boolean } = {}) => {
     setShowAtribuirTime(false);
     setAtribuirVisible(true);
   };
-
-
 
   const confirmAtribuir = async () => {
     if (!atribuirTarget || !atribuirForm.tecnicoId || !atribuirForm.data.trim() || !atribuirForm.hora.trim()) {
@@ -2509,9 +2507,33 @@ const openDetailModal = async (item: AdminService) => {
                   <Feather name="phone" size={16} color="#64748b" />
                   <Text style={styles.detailInfoText}>{selectedService.telefone || 'Telefone nao informado'}</Text>
                 </View>
-                <View style={styles.detailInfoRow}>
-                  <Feather name="map-pin" size={16} color="#64748b" />
-                  <Text style={styles.detailInfoText}>{selectedService.endereco}</Text>
+                <View style={[styles.detailInfoRow, { justifyContent: 'space-between', gap: 10 }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <Feather name="map-pin" size={16} color="#64748b" />
+                    <Text style={[styles.detailInfoText, { flex: 1, marginLeft: 8 }]}>{selectedService.endereco}</Text>
+                  </View>
+                  {selectedService.endereco && selectedService.endereco !== '-' ? (
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: '#FAF9F6',
+                        borderWidth: 1.5,
+                        borderColor: '#e2e8f0',
+                        borderRadius: 10,
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                      onPress={() => {
+                        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedService.endereco)}`;
+                        Linking.openURL(url).catch((err) => console.warn('Erro ao abrir o Maps:', err));
+                      }}
+                    >
+                      <Feather name="map" size={14} color="#7A1A1A" />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#7A1A1A' }}>Ver no Maps</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
 
                 <View style={styles.detailTechRow}>
@@ -2877,44 +2899,137 @@ const openDetailModal = async (item: AdminService) => {
 };
 
 const styles = StyleSheet.create({
+  trackingCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  trackingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  trackingTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  trackingSubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#7A1A1A',
+    textTransform: 'uppercase',
+  },
+  trackingDivider: {
+    height: 1.5,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 12,
+  },
+  noTrackingText: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '500',
+    textAlign: 'center',
+    paddingVertical: 10,
+  },
+  techLocationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    borderRadius: 12,
+    padding: 10,
+    minWidth: 180,
+    maxWidth: 220,
+  },
+  avatarMini: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fee2e2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarMiniText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#7A1A1A',
+  },
+  techLocationName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  techLocationTime: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  pinIconWrapper: {
+    marginLeft: 'auto',
+    paddingLeft: 8,
+  },
   successBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#10b981',
+    borderRadius: 12,
+    padding: 14,
     marginBottom: 20,
   },
   successBannerText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   detailStatBox: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    padding: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
   },
   detailStatLabel: {
     fontSize: 12,
     color: '#64748b',
-    fontWeight: '500',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   detailStatValue: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#0f172a',
     marginTop: 2,
   },
   gridCard: {
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    borderRadius: 16,
+    padding: 16,
     minHeight: 120,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
   },
   gridCardTitle: {
     fontSize: 14,
@@ -2924,17 +3039,19 @@ const styles = StyleSheet.create({
   gridCardSub: {
     fontSize: 12,
     color: '#64748b',
-    marginTop: 4,
+    marginTop: 6,
     lineHeight: 16,
+    fontWeight: '500',
   },
   badgeStyle: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   badgeText: {
     fontSize: 11,
     fontWeight: '700',
+    textTransform: 'uppercase',
   },
   circleIconBg: {
     width: 32,
@@ -2950,7 +3067,7 @@ const styles = StyleSheet.create({
   },
   container: { 
     flex: 1, 
-    backgroundColor: '#fff' // Corrigido para fundo branco padrão do app
+    backgroundColor: '#FAF9F6' // Clean off-white bg
   },
   header: {
     backgroundColor: '#2a0000',

@@ -1,7 +1,7 @@
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, TextInput } from 'react-native';
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, TextInput, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader from '../../components/shared/AppHeader';
 import { AdminServiceData, buildTechniciansFromServices, fetchAdminServicesAllFromApi, fetchAdminTecnicosFromApi, formatTimeDuration } from '../../components/shared/admin/adminApi';
@@ -14,6 +14,7 @@ export default function MinhaEquipeScreen() {
   const navigation = useNavigation();
   const { user } = useUser();
   const [services, setServices] = useState<AdminServiceData[]>([]);
+  const [tecnicos, setTecnicos] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -34,21 +35,29 @@ export default function MinhaEquipeScreen() {
     try {
       const typeUser = String(user?.typeUser || '').toLowerCase();
       let data: AdminServiceData[] = [];
+      let tecsList: any[] = [];
       
       if (typeUser === 'admin') {
-        data = await fetchAdminServicesAllFromApi();
+        const [allServicos, allTecnicos] = await Promise.all([
+          fetchAdminServicesAllFromApi(),
+          fetchAdminTecnicosFromApi()
+        ]);
+        data = allServicos;
+        tecsList = allTecnicos;
       } else {
-        const [allServicos, tecnicos] = await Promise.all([
+        const [allServicos, allTecnicos] = await Promise.all([
           fetchAdminServicesAllFromApi(),
           fetchAdminTecnicosFromApi()
         ]);
         const userId = user?.userId || user?.id || '';
-        const minhaEquipeTecnicos = tecnicos.filter(t => String(t.gerenteId) === userId);
+        const minhaEquipeTecnicos = allTecnicos.filter(t => String(t.gerenteId) === userId);
         const nomesTecnicos = minhaEquipeTecnicos.map(t => t.nome);
         data = allServicos.filter(s => s.tecnico && nomesTecnicos.includes(s.tecnico));
+        tecsList = minhaEquipeTecnicos;
       }
       
       setServices(data);
+      setTecnicos(tecsList);
     } catch (e) {
       console.warn('Erro ao carregar equipe:', e);
       setError('Não foi possível carregar os serviços da equipe.');
@@ -200,6 +209,9 @@ export default function MinhaEquipeScreen() {
           const visibleServices = isExpanded ? tec.servicos : tec.servicos.slice(0, 3);
           const hasMore = tec.servicos.length > 3;
 
+          const matchingTec = tecnicos.find(t => t.nome === tec.nome);
+          const hasLocation = !!(matchingTec?.lastLocation?.latitude && matchingTec?.lastLocation?.longitude);
+
           return (
             <View key={tec.nome} style={styles.tecAccordion}>
               <TouchableOpacity style={styles.tecHeader} activeOpacity={0.7} onPress={() => toggleCollapse(tec.nome)}>
@@ -212,7 +224,33 @@ export default function MinhaEquipeScreen() {
                     <Text style={styles.tecServicesCount}>{tec.servicos.length} serviços • T. Médio: {formatTimeDuration(tec.tempoMedioMs)}</Text>
                   </View>
                 </View>
-                <Feather name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={24} color="#64748b" />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  {hasLocation ? (
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: '#FAF9F6',
+                        borderWidth: 1.5,
+                        borderColor: '#e2e8f0',
+                        borderRadius: 10,
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        const { latitude, longitude } = matchingTec.lastLocation;
+                        const url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+                        Linking.openURL(url).catch((err) => console.warn('Erro ao abrir o Maps:', err));
+                      }}
+                    >
+                      <Feather name="map-pin" size={14} color="#7A1A1A" />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#7A1A1A' }}>Onde está</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <Feather name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={24} color="#64748b" />
+                </View>
               </TouchableOpacity>
 
               {!isCollapsed && (
@@ -281,7 +319,6 @@ export default function MinhaEquipeScreen() {
             </Text>
           </View>
         )}
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -289,63 +326,68 @@ export default function MinhaEquipeScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#7A1A1A' },
-  content: { padding: 16, paddingBottom: 100, backgroundColor: '#f8fafc', flexGrow: 1 },
+  content: { padding: 16, paddingBottom: 100, backgroundColor: '#FAF9F6', flexGrow: 1 },
   
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
   statCard: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 8,
-    paddingVertical: 12,
+    borderRadius: 14,
+    paddingVertical: 14,
     paddingHorizontal: 4,
     marginHorizontal: 3,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
     elevation: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#f1f5f9',
   },
   statIconRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  statValue: { fontSize: 18, fontFamily: 'Inter-Bold', color: '#1e293b', marginLeft: 4 },
-  statLabelTotal: { fontSize: 10, fontFamily: 'Inter-Bold', color: '#1e293b', textAlign: 'center' },
-  statLabel: { fontSize: 10, fontFamily: 'Inter-Bold', color: '#64748b', textAlign: 'center' },
-  statSubLabel: { fontSize: 9, color: '#94a3b8', textAlign: 'center', marginTop: 2 },
+  statValue: { fontSize: 18, fontWeight: '800', color: '#1e293b', marginLeft: 4 },
+  statLabelTotal: { fontSize: 10, fontWeight: '700', color: '#1e293b', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.3 },
+  statLabel: { fontSize: 10, fontWeight: '700', color: '#64748b', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.3 },
+  statSubLabel: { fontSize: 9, color: '#94a3b8', textAlign: 'center', marginTop: 2, fontWeight: '500' },
 
-  searchRow: { flexDirection: 'row', marginBottom: 24 },
+  searchRow: { flexDirection: 'row', marginBottom: 20 },
   searchBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: '#e2e8f0',
     paddingHorizontal: 12,
-    marginRight: 12,
+    marginRight: 10,
   },
-  searchInput: { flex: 1, height: 44, marginLeft: 8, color: '#334155' },
+  searchInput: { flex: 1, height: 46, marginLeft: 8, color: '#0f172a', fontSize: 15 },
   filterBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
     paddingHorizontal: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#e2e8f0',
   },
-  filterBtnText: { color: '#334155', marginLeft: 8, fontFamily: 'Inter-Medium' },
+  filterBtnText: { color: '#475569', marginLeft: 8, fontWeight: '600', fontSize: 14 },
 
   tecAccordion: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#f1f5f9',
     overflow: 'hidden',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   tecHeader: {
     flexDirection: 'row',
@@ -353,39 +395,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     backgroundColor: '#f8fafc',
-    borderBottomWidth: 1,
+    borderBottomWidth: 1.5,
     borderBottomColor: '#f1f5f9',
   },
   tecHeaderLeft: { flexDirection: 'row', alignItems: 'center' },
   tecAvatar: {
-    width: 36, height: 36, borderRadius: 18, backgroundColor: '#fce7f3',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: '#fee2e2',
     alignItems: 'center', justifyContent: 'center', marginRight: 12,
   },
-  tecAvatarText: { color: '#be185d', fontFamily: 'Inter-Bold', fontSize: 14 },
-  tecName: { fontSize: 16, fontFamily: 'Inter-SemiBold', color: '#1e293b' },
-  tecServicesCount: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  tecAvatarText: { color: '#7A1A1A', fontWeight: '700', fontSize: 15 },
+  tecName: { fontSize: 16, fontWeight: '700', color: '#1e293b' },
+  tecServicesCount: { fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '500' },
   
   tecContent: { padding: 12, backgroundColor: '#fff' },
   
   serviceCard: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
-    borderLeftWidth: 4,
+    borderLeftWidth: 3,
   },
   serviceRow: { flexDirection: 'row', flex: 1, paddingLeft: 12 },
   serviceIconCol: { justifyContent: 'flex-start', paddingTop: 2, marginRight: 12 },
   serviceDetailsCol: { flex: 1, justifyContent: 'center' },
-  serviceId: { fontSize: 14, fontFamily: 'Inter-Bold', color: '#1e293b' },
-  serviceDesc: { fontSize: 13, color: '#64748b', marginTop: 4 },
+  serviceId: { fontSize: 14, fontWeight: '700', color: '#1e293b' },
+  serviceDesc: { fontSize: 13, color: '#475569', marginTop: 4, fontWeight: '500' },
   serviceAddress: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
   
   serviceRightCol: { alignItems: 'flex-end', justifyContent: 'space-between', paddingLeft: 8 },
-  serviceBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, marginBottom: 8 },
-  serviceBadgeText: { fontSize: 10, fontFamily: 'Inter-SemiBold' },
-  serviceDate: { fontSize: 11, color: '#64748b' },
+  serviceBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginBottom: 8 },
+  serviceBadgeText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  serviceDate: { fontSize: 11, color: '#64748b', fontWeight: '500' },
 
   seeMoreBtn: {
     padding: 12,
@@ -393,7 +435,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
     backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
   },
-  seeMoreText: { color: '#3b82f6', fontFamily: 'Inter-Medium', fontSize: 13 },
+  seeMoreText: { color: '#7A1A1A', fontWeight: '700', fontSize: 13 },
 });

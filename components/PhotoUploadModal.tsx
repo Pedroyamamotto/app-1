@@ -1,8 +1,26 @@
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import React, { useEffect, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import StandardImage from './StandardImage';
+
+const compressImage = async (uri: string): Promise<string> => {
+  if (Platform.OS === 'web' || !uri.startsWith('file:')) {
+    return uri;
+  }
+  try {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1280 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    return result.uri;
+  } catch (error) {
+    console.warn('Erro ao comprimir imagem:', error);
+    return uri;
+  }
+};
 
 type UploadedPhoto = {
   uri: string;
@@ -47,7 +65,7 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
 
       input.onchange = () => {
         const files = Array.from(input.files || []);
-        const mapped = files.map((file) => ({
+        const mapped = files.map((file: any) => ({
           uri: URL.createObjectURL(file),
           mimeType: file.type || undefined,
           fileName: file.name || undefined,
@@ -64,14 +82,6 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
       setPhotos([]);
     }
   }, [visible]);
-
-  const mapAssetToPhoto = (asset: ImagePicker.ImagePickerAsset): UploadedPhoto => ({
-    uri: asset.uri,
-    mimeType: asset.mimeType || undefined,
-    fileName: asset.fileName || undefined,
-    width: asset.width,
-    height: asset.height,
-  });
 
   const handleTakePhoto = async () => {
     if (isWeb) {
@@ -98,7 +108,16 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
     });
 
     if (!result.canceled) {
-      const newPhoto = mapAssetToPhoto(result.assets[0]);
+      const asset = result.assets[0];
+      const compressedUri = await compressImage(asset.uri);
+      const newPhoto: UploadedPhoto = {
+        uri: compressedUri,
+        mimeType: 'image/jpeg',
+        fileName: asset.fileName || 'photo.jpg',
+        width: asset.width,
+        height: asset.height,
+      };
+      
       if (allowMultiple) {
         setPhotos((prev) => {
           if (prev.length >= maxPhotos) {
@@ -141,7 +160,18 @@ const PhotoUploadModal = ({ visible, onClose, onBack, onNext, onNextMany, allowM
     });
 
     if (!result.canceled) {
-      const mapped = result.assets.map(mapAssetToPhoto);
+      const mapped: UploadedPhoto[] = await Promise.all(
+        result.assets.map(async (asset) => {
+          const compressedUri = await compressImage(asset.uri);
+          return {
+            uri: compressedUri,
+            mimeType: 'image/jpeg',
+            fileName: asset.fileName || 'photo.jpg',
+            width: asset.width,
+            height: asset.height,
+          };
+        })
+      );
       if (allowMultiple) {
         setPhotos(prev => {
           const combined = [...prev, ...mapped];
