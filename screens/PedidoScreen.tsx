@@ -1,22 +1,21 @@
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, Platform, Linking } from 'react-native';
-import { Image } from 'expo-image';
+import { ActivityIndicator, Alert, Linking, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ChecklistModal from '../components/ChecklistModal';
+import ImageZoomModal, { PhotoGalleryModal } from '../components/ImageZoomModal';
 import NotCompletedModal from '../components/NotCompletedModal';
+import PauseModal from '../components/PauseModal';
 import PhotoUploadModal from '../components/PhotoUploadModal';
+import { getAdminApiKey } from '../components/shared/admin/adminApi';
 import SignatureModal from '../components/SignatureModal';
 import StandardImage from '../components/StandardImage';
-import ImageZoomModal, { PhotoGalleryModal } from '../components/ImageZoomModal';
 import Stopwatch from '../components/Stopwatch';
-import PauseModal from '../components/PauseModal';
-import { getAdminApiKey } from '../components/shared/admin/adminApi';
 import { API_BASE_URL, apiFetch } from '../constants/api';
 import { formatLockDisplayName } from '../constants/serviceDisplay';
 import { useUser } from '../context/UserContext';
-import { appendBase64ToForm, appendFileDataToForm, isWeb, cleanText } from '../utils/platformUtils';
+import { cleanText } from '../utils/platformUtils';
 import { gerarRelatorioPDF } from '../utils/report';
 
 type ServiceData = {

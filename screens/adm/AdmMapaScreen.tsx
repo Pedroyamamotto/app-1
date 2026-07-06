@@ -1,11 +1,11 @@
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { ActivityIndicator, Linking, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 import AppHeader from '../../components/shared/AppHeader';
-import { fetchAdminTecnicosFromApi, fetchAdminGerentesFromApi } from '../../components/shared/admin/adminApi';
+import { fetchAdminGerentesFromApi, fetchAdminTecnicosFromApi } from '../../components/shared/admin/adminApi';
 import { useAppTheme } from '../../context/ThemeContext';
 
 const LIVE_LOCATION_MAX_AGE_MINUTES = 120;

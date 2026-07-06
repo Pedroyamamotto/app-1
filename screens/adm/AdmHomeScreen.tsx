@@ -1,41 +1,42 @@
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { Image } from 'expo-image';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, Linking } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageZoomModal, { PhotoGalleryModal } from '../../components/ImageZoomModal';
 import PhotoUploadModal from '../../components/PhotoUploadModal';
-import { assignAdminService, createAdminServiceRequest, fetchAdminDashboardFromApi, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, getAdminApiKey, uploadAdminServiceContextPhoto, fetchAdminServiceFinalizacao, fetchAdminClientesFromApi, fetchAdminGerentesFromApi, type AdminDashboardData, type AdminTecnicoUser, type AdminCliente, type AdminGerenteUser } from '../../components/shared/admin/adminApi';
+import { assignAdminService, createAdminServiceRequest, fetchAdminClientesFromApi, fetchAdminDashboardFromApi, fetchAdminGerentesFromApi, fetchAdminServiceFinalizacao, fetchAdminServicesFromApi, fetchAdminTecnicosFromApi, uploadAdminServiceContextPhoto, type AdminCliente, type AdminDashboardData, type AdminGerenteUser, type AdminTecnicoUser } from '../../components/shared/admin/adminApi';
 import AdminHeader from '../../components/shared/admin/AdminHeader';
 import AdminOverviewCard from '../../components/shared/admin/AdminOverviewCard';
 import StandardImage from '../../components/StandardImage';
+import { API_BASE_URL, apiFetch } from '../../constants/api';
 import { formatLockDisplayName } from '../../constants/serviceDisplay';
-import { apiFetch, API_BASE_URL } from '../../constants/api';
 import { useUser } from '../../context/UserContext';
 import type { AdminService, ChecklistItem, DropdownKey, FilterState, NaoRealizadoDetail, NewServiceForm, ReagendarForm, ServiceDetail, UploadedPhoto } from './components/types';
 
 import {
-  DEFAULT_FILTERS,
-  PERIODO_OPTIONS,
-  REAGENDAR_HOURS,
-  REAGENDAR_MINUTES,
-  STATUS_OPTIONS,
-  statusBadgeColorByCode,
-  statusFilterToCode,
-  statusLabelByCode,
+    DEFAULT_FILTERS,
+    PERIODO_OPTIONS,
+    REAGENDAR_HOURS,
+    REAGENDAR_MINUTES,
+    STATUS_OPTIONS,
+    statusBadgeColorByCode,
+    statusFilterToCode,
+    statusLabelByCode,
 } from './components/constants';
 import {
-  formatOrdemServicoLabel,
-  formatPedidoLabel,
-  fromCalendarDate,
-  getTodayCalendarDate,
-  matchesPeriodo,
-  normalizeDigits,
-  normalizeSearchValue,
-  toCalendarDate,
+    formatOrdemServicoLabel,
+    formatPedidoLabel,
+    fromCalendarDate,
+    getTodayCalendarDate,
+    matchesPeriodo,
+    normalizeDigits,
+    normalizeSearchValue,
+    toCalendarDate,
 } from './components/utils';
+
+import { gerarRelatorioPDF } from '../../utils/report';
 
 const normalizeImageUri = (uri: any): string | null => {
   if (!uri) return null;
@@ -56,8 +57,6 @@ const normalizeImageUri = (uri: any): string | null => {
   }
   return `${API_BASE_URL}/${trimmed}`;
 };
-
-import { gerarRelatorioPDF } from '../../utils/report';
 
 // Valor padrão para formulário de novo serviço
 const DEFAULT_NEW_SERVICE_FORM: NewServiceForm = {
